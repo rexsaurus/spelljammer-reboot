@@ -54,3 +54,8 @@ test('u32 price and body orbits', () => {
   const bp = bodyPositions(raw.bodies); assert.equal(Math.round(Math.hypot(bp[1].x, bp[1].z)), 1280); assert.equal(bp[2].real, false);
   assert.ok(Math.hypot(bp[2].x, bp[2].z) > 1280);
 });
+test('friendly ships hold fire until fired upon', () => {
+  const s = newGame(db); const rng = makeRng(3); const b = startBattle(s, db, rng); b.enemy.holdFire = true; b.enemy.z = -5;
+  for (let i = 0; i < 50; i++) stepCombat(b, { thrust: 0, turn: 0, fire: false }, 0.2, rng); assert.equal(b.player.hull, s.ship.hull);
+  stepCombat(b, { fire: true }, 0.2, rng); assert.equal(b.enemy.holdFire, false);
+});

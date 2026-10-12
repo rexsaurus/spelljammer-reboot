@@ -12,6 +12,7 @@ import { makeCharacter, hire, hireCost, MAX_CREW } from '../game/crew.js';
 import { buyHull, hullPrice, tradeInValue } from '../game/shipyard.js';
 import { makeRng } from '../game/rng.js';
 import * as B from '../game/boarding.js';
+import * as Q from '../game/quest.js';
 
 const j = u => fetch(u).then(r => r.ok ? r.json() : null).catch(() => null);
 const [manifest, m2, items, ships, ports, inventories, rumors, bodiesJson, ui, decks, monsters] = await Promise.all(
@@ -94,7 +95,8 @@ function districtScreen(type, title) {
       else say('No one is hiring a ship today.');
     }
     if (type === 'TPL') { if (/HEAL/.test(t)) { const cost = state.crew.reduce((a, c) => a + (c.hpMax - c.hp) * 10, 0); if (cost > state.gold) say('Not enough gold.'); else { state.gold -= cost; state.crew.forEach(c => c.hp = c.hpMax); say(`Your crew is healed for ${cost} gp.`); } } else say('The priests see no need.'); }
-    if (type === 'HAL' || type === 'BNK') say('Not yet implemented.');
+    if (type === 'HAL' && state.location === 'PORT70') { const r = Q.clive(state); say(r === 'citadel-marked' ? 'Clive marks a dwarven citadel on your charts.' : r === 'gathering-marked' ? 'Clive tells you of a Neogi gathering.' : 'Clive has nothing more for you.'); }
+    else if (type === 'HAL' || type === 'BNK') say('Not yet implemented.');
     save();
   };
   const menu = new Menu(btns, act);
@@ -145,28 +147,50 @@ function spaceScreen() {
 function orbitScreen(body) {
   const file = `DOCK${body.idx - 1}`, onPlanet = map.filter(p => p.sphere === body.idx);
   const menu = new Menu(BTN[file] || [], b => { const t = parseLabel(b.label).text;
-    if (/^DOCK AT/.test(t)) { const k = BTN[file].filter(x => /^DOCK AT/.test(parseLabel(x.label).text)).indexOf(b); const p = onPlanet[k] || onPlanet[0]; if (!p) return say('No port answers your hail.'); state.location = p.key; state.log.push(`Day ${state.day}: Docked at ${p.name}.`); sfx('1'); return go(portScreen()); }
+    if (/^DOCK AT/.test(t)) { const k = BTN[file].filter(x => /^DOCK AT/.test(parseLabel(x.label).text)).indexOf(b); const p = onPlanet[k] || onPlanet[0]; if (!p) return say('No port answers your hail.'); state.location = p.key; state.log.push(`Day ${state.day}: Docked at ${p.name}.`); sfx('1'); go(portScreen()); if (Q.onDock(state) === 'envoy') say('Count Eldacar of Waterdeep seeks you out:', 'the Neogi grow bold. Stop them, and rich', 'rewards await.'); return; }
     if (/AIR/.test(t)) say('Your air envelope is refreshed.');
     if (/LEAVE ORBIT/.test(t)) { placeAt(body); ship.speed = 60; go(spaceScreen()); say(`Leaving orbit of ${body.name}.`); } });
   return { kind: 'orbit', menu, enter() { placeAt(body); ship.heading += Math.PI; say(`In orbit around ${body.name}.`); }, draw() { frame(); renderSpace(); menu.draw(g, font); standard.draw(g, font); drawMsg(); } };
 }
 function destScreen() {
-  const dests = bodies.filter(b => BTN[`DOCK${b.idx - 1}`]);
-  const btns = dests.map((b, i) => ({ id: 20 + i, x: 177, y: 33 + i * 12, w: 140, h: 8, label: `^${b.name}` })).concat([{ id: 99, x: 177, y: 33 + dests.length * 12, w: 140, h: 8, label: 'E^XIT' }]);
-  const menu = new Menu(btns, b => { if (b.id === 99) return go(spaceScreen()); const dest = dests[b.id - 20], tgt = map.find(p => p.sphere === dest.idx);
+  const dests = bodies.filter(b => BTN[`DOCK${b.idx - 1}`]), pois = Q.q(state).pois;
+  const btns = dests.map((b, i) => ({ id: 20 + i, x: 177, y: 33 + i * 10, w: 140, h: 8, label: `^${b.name}` })).concat(pois.map((k, i) => ({ id: 50 + i, x: 177, y: 33 + (dests.length + i) * 10, w: 140, h: 8, label: Q.POI[k].name }))).concat([{ id: 99, x: 177, y: 33 + (dests.length + pois.length) * 10, w: 140, h: 8, label: 'E^XIT' }]);
+  const menu = new Menu(btns, b => { if (b.id === 99) return go(spaceScreen());
+    if (b.id >= 50) return goPoi(pois[b.id - 50]);
+    const dest = dests[b.id - 20], tgt = map.find(p => p.sphere === dest.idx);
     if (!tgt) return; const from = state.location; const r = travel(state, map, tgt.key, rng); save();
+    if (Q.rollEncounter(state, rng) === 'messenger') { say('A small ship flying a white flag approaches.', 'Close in and hail her (negotiate).'); return go(combatScreen(tgt, { hail: 'messenger', friendly: true })); }
     if (r.encounter) { say('Spelljamming...', 'A ship moves to intercept!'); return go(combatScreen(tgt)); }
     state.location = from; say(`Spelljamming to ${dest.name}... ${r.days} days.`); go(orbitScreen(dest)); });
   return { kind: 'dest', menu, draw() { frame(); renderSpace(); menu.draw(g, font); standard.draw(g, font); drawMsg(); } };
 }
-function combatScreen(dest) {
-  battle = startBattle(state, db, rng); battle.player.x = ship.x; battle.player.z = ship.z; battle.player.heading = ship.heading;
+function goPoi(k) {
+  const near = bodies.find(b => b.name === Q.POI[k].near) || bodies[0]; placeAt(near); state.day += 3; save();
+  const here = map.find(p => p.key === state.location);
+  if (k === 'CITADEL') { say('ITS A DWARVEN CITADEL!!'); return go(combatScreen(here, { citadel: true, name: 'DWARVEN CITADEL', sprite: 'CITADEL', friendly: true })); }
+  if (k === 'GATHERING' || k === 'RAID') { say(`You reach the ${Q.POI[k].name}. Hail the Neogi.`); return go(combatScreen(here, { hail: k, friendly: true, name: k === 'RAID' ? 'NEOGI DEATHSPIDER' : 'NEOGI MINDSPIDER' })); }
+  if (k === 'MOTHERSHIP') { const foe = Q.nextChainFoe(state); say(`A ${foe} closes in!`); return go(combatScreen(here, { chain: true, name: foe, hull: /MOTHER/.test(foe) ? 400 : /MIND/.test(foe) ? 100 : 60, friendly: /DEATH/.test(foe) })); }
+}
+function combatScreen(dest, opts = {}) {
+  battle = startBattle(state, db, rng); if (opts.name) battle.enemy.name = opts.name; if (opts.hull) battle.enemy.hull = battle.enemy.maxHull = opts.hull;
+  if (opts.citadel) { battle.enemy.weapons = []; battle.enemy.maxSpeed = 0; battle.enemy.hull = battle.enemy.maxHull = 9999; }
+  if (opts.friendly) battle.enemy.holdFire = true; battle.player.x = ship.x; battle.player.z = ship.z; battle.player.heading = ship.heading;
   battle.enemy.x = ship.x + Math.sin(ship.heading) * 180; battle.enemy.z = ship.z - Math.cos(ship.heading) * 180;
   const types = Object.keys(manifest.sprites).filter(k => /^SHP\d+S0$/.test(k)).map(k => +k.match(/\d+/)[0]), st = types[rng.int(0, types.length - 1)];
   const frames = Array.from({ length: 9 }, (_, i) => `SHP${st}S${i}`).filter(n => manifest.sprites[n]), texs = frames.map(texOf);
+  if (opts.sprite) { frames.length = 0; frames.push(opts.sprite); texs.length = 0; texs.push(texOf(opts.sprite)); }
   enemySprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texs[0], transparent: true, alphaTest: .5 })); scene.add(enemySprite);
   let thrust = 0, turn = 0, fire = false;
-  const menu = new Menu(BTN.COMBAT, b => { const n = b.image; if (n === 'FIRE') fire = true; if (n === 'GO') thrust = 1; if (n === 'STOP') thrust = -1; if (n === 'LEFT') turn = turn === -1 ? 0 : -1; if (n === 'RIGHT') turn = turn === 1 ? 0 : 1; if (n === 'UP') battle.player.target = 'hull'; if (n === 'DOWN') battle.player.target = 'weapons'; if (n === 'GRAPPLE') { const p = battle.player, e = battle.enemy; if (Math.hypot(e.x - p.x, e.z - p.z) > 40) return say('Too far away to grapple.'); say('Grappling hooks away! Prepare for boarding...'); const eb = battle; scene.remove(enemySprite); battle = null; return go(boardingScreen(boardingFoes(eb.enemy), r => afterBoarding(r, eb, dest))); }
+  const menu = new Menu(BTN.COMBAT, b => { const n = b.image;
+    if (n === 'FIRE' && opts.citadel) return say('WEAPONS HAVE NO AFFECT ON THE CITADEL!');
+    if (n === 'NEGOT') { const p = battle.player, e = battle.enemy; if (Math.hypot(e.x - p.x, e.z - p.z) > 80) return say('Too far to hail.');
+      const r = opts.hail ? Q.hail(state, opts.hail) : null; scene.remove(enemySprite); battle = null; save();
+      say(r === 'clive-message' ? "Clive's messenger pays you 1000 gold: visit Clive's Den." : r === 'raid-orders' ? 'The sceptre disguises you. You are ordered to a raid.' : r === 'mothership-revealed' ? 'The Neogi captain begs for its life and reveals the mothership!' : r === 'need-sceptre' ? 'The Neogi see through you!' : 'They ignore your hail.');
+      return go(orbitScreen(planetOf(state.location))); }
+    if (n === 'GRAPPLE' && opts.citadel) { const p = battle.player, e = battle.enemy; if (Math.hypot(e.x - p.x, e.z - p.z) > 40) return say('Too far away to grapple.'); scene.remove(enemySprite); battle = null;
+      const foes = Q.CITADEL_GARRISON.map(([nm, c], i) => B.unitFromMonster(monByName(nm), c, rng, i));
+      return go(boardingScreen(foes, r => { const q = Q.citadelBoarded(state, r); say(q === 'sceptre' ? 'YOU HAVE FOUND THE SCEPTRE!' : 'You retreat from the citadel.'); save(); go(orbitScreen(planetOf(state.location))); }, 'OHM6')); }
+    if (n === 'FIRE') fire = true; if (n === 'GO') thrust = 1; if (n === 'STOP') thrust = -1; if (n === 'LEFT') turn = turn === -1 ? 0 : -1; if (n === 'RIGHT') turn = turn === 1 ? 0 : 1; if (n === 'UP') battle.player.target = 'hull'; if (n === 'DOWN') battle.player.target = 'weapons'; if (n === 'GRAPPLE') { const p = battle.player, e = battle.enemy; if (Math.hypot(e.x - p.x, e.z - p.z) > 40) return say('Too far away to grapple.'); say('Grappling hooks away! Prepare for boarding...'); const eb = battle; scene.remove(enemySprite); battle = null; return go(boardingScreen(boardingFoes(eb.enemy), r => afterBoarding(r, eb, dest))); }
     if (/RAM|SHEAR|SWEAP|NEGOT/.test(n)) say(`${n}: not yet implemented.`); });
   say(`Engaging the ${battle.enemy.name}!`);
   return { kind: 'combat', menu,
@@ -177,6 +201,7 @@ function combatScreen(dest) {
       const toCam = Math.atan2(p.x - e.x, -(p.z - e.z)); let d = toCam - e.heading; d = Math.atan2(Math.sin(d), Math.cos(d)); const idx = Math.round(Math.abs(d) / Math.PI * (frames.length - 1)), s = manifest.sprites[frames[idx]];
       enemySprite.material.map = texs[idx]; enemySprite.scale.set(s.w * (d < 0 ? -1 : 1), s.h, 1); enemySprite.position.set(e.x, 0, e.z);
       if (battle.result) { scene.remove(enemySprite); resolveBattle(state, battle); const res = battle.result; battle = null;
+        if (opts.chain) { const r = Q.chainBattle(state, res); if (r === 'ending') { say('THE NEOGI MOTHERSHIP IS DESTROYED!'); save(); return go(endingScreen()); } if (r === 'next') say(`Next: ${Q.nextChainFoe(state)}.`); }
         if (res !== 'defeat') { state.location = dest.key; } say(`Battle over: ${res}.`); save(); go(orbitScreen(planetOf(state.location))); } },
     draw() { frame(); renderSpace(); if (battle) { const p = battle.player, e = battle.enemy; font.draw(g, `HULL ${p.hull}/${p.maxHull}`, 180, 30, TEXT); font.draw(g, `${e.name.slice(0, 20)}`, 180, 42, HILITE); font.draw(g, `HULL ${e.hull}/${e.maxHull}`, 180, 50, HILITE); font.draw(g, `RANGE ${Math.round(Math.hypot(e.x - p.x, e.z - p.z))}`, 180, 62, TEXT); font.draw(g, `TARGET ${p.target}`, 180, 74, TEXT); }
       menu.draw(g, font); standard.draw(g, font); drawMsg(); } };
@@ -190,6 +215,10 @@ function diskScreen(prev) {
   return { kind: 'disk', menu, draw(dt) { frame(); if (prev.kind === 'space' || prev.kind === 'orbit') renderSpace(); else drawAnim(dt); menu.draw(g, font); drawMsg(); } };
 }
 
+function endingScreen() {
+  return { kind: 'ending', draw() { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); const im = art('FINALE0'); if (im.complete && im.width) g.drawImage(im, 8, 10); font.draw(g, 'REALMSPACE IS SAVED. CLICK TO CONTINUE.', 60, 180, '#f0d070'); },
+    mouse(p, click) { if (click) { Q.finishEnding(state); save(); go(portScreen()); } return true; } };
+}
 // ---------- boarding (OTC): OH.PCX frame, 24x24 TILE0 deck tiles, OCOMBAT buttons ----------
 const OHV = ui.viewports.OH_view, OHM = ui.viewports.OH_msg, T = 24;
 const monByName = n => monsters.find(m => m.name === n);

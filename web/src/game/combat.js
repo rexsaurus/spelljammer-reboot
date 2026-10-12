@@ -33,10 +33,10 @@ export function fire(attacker, defender, rng, events) {
 }
 export function stepCombat(battle, playerInput, dt, rng) {
   const { player, enemy } = battle, events = [];
-  steer(player, playerInput, dt); steer(enemy, aiInput(enemy, player), dt);
+  steer(player, playerInput, dt); steer(enemy, enemy.holdFire ? { turn: 0, thrust: 0 } : aiInput(enemy, player), dt);
   for (const c of [player, enemy]) for (const w of c.weapons) w.cd = Math.max(0, w.cd - dt);
-  if (playerInput.fire) fire(player, enemy, rng, events);
-  fire(enemy, player, rng, events);
+  if (playerInput.fire) { fire(player, enemy, rng, events); enemy.holdFire = false; } // friendly ships turn hostile once fired on
+  if (!enemy.holdFire) fire(enemy, player, rng, events);
   const dist = Math.hypot(enemy.x - player.x, enemy.z - player.z);
   if (enemy.hull <= 0) battle.result = 'victory'; else if (player.hull <= 0) battle.result = 'defeat'; else if (dist > 400) battle.result = 'escaped';
   return events;
