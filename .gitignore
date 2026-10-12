@@ -1,5 +1,5 @@
-game/
-extracted/
+/game/
+/extracted/
 *.exe
 .DS_Store
 node_modules/
