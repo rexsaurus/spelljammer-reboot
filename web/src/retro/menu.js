@@ -4,7 +4,7 @@ import { art } from './screen.js';
 export const TEXT = '#2a1406', HOT = '#fff4c0', HILITE = '#c00000'; // colors approximate the VGA palette entries
 export const parseLabel = l => { const i = l.indexOf('^'); return { text: l.replace('^', ''), hot: i >= 0 ? l[i + 1]?.toLowerCase() : null, hotIndex: i }; };
 export class Menu {
-  constructor(buttons, onPick) { this.buttons = buttons; this.onPick = onPick; this.hover = -1; }
+  constructor(buttons, onPick) { this.buttons = buttons.map(b => (!b.image && b.label.startsWith('`') ? { ...b, image: b.label.slice(1).toUpperCase() } : b)); this.onPick = onPick; this.hover = -1; }
   hit(x, y) { return this.buttons.findIndex(b => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h); }
   draw(g, font) {
     this.buttons.forEach((b, i) => {

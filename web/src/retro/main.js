@@ -11,10 +11,11 @@ import { startBattle, stepCombat, resolveBattle } from '../game/combat.js';
 import { makeCharacter, hire, hireCost, MAX_CREW } from '../game/crew.js';
 import { buyHull, hullPrice, tradeInValue } from '../game/shipyard.js';
 import { makeRng } from '../game/rng.js';
+import * as B from '../game/boarding.js';
 
 const j = u => fetch(u).then(r => r.ok ? r.json() : null).catch(() => null);
-const [manifest, m2, items, ships, ports, inventories, rumors, bodiesJson, ui] = await Promise.all(
-  ['/manifest.json', '/manifest2.json', '/data/items.json', '/data/ships.json', '/data/ports.json', '/data/inventories.json', '/data/rumors.json', '/data/bodies.json', '/data/btn.json'].map(j));
+const [manifest, m2, items, ships, ports, inventories, rumors, bodiesJson, ui, decks, monsters] = await Promise.all(
+  ['/manifest.json', '/manifest2.json', '/data/items.json', '/data/ships.json', '/data/ports.json', '/data/inventories.json', '/data/rumors.json', '/data/bodies.json', '/data/btn.json', '/data/decks.json', '/data/monsters.json'].map(j));
 if (!manifest || !ui || !bodiesJson) { document.body.textContent = 'Missing decoded data. Run tools/sj_decode.py, sj_more.py, sj_data.py, sj_maps.py and sj_ui.py on your own GOG copy.'; throw new Error('no data'); }
 const db = buildDb({ items, ships, ports, inventories, rumors });
 const bodies = bodyPositions(bodiesJson.bodies), map = layout(db.ports, bodiesJson.bodies);
@@ -165,7 +166,8 @@ function combatScreen(dest) {
   const frames = Array.from({ length: 9 }, (_, i) => `SHP${st}S${i}`).filter(n => manifest.sprites[n]), texs = frames.map(texOf);
   enemySprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texs[0], transparent: true, alphaTest: .5 })); scene.add(enemySprite);
   let thrust = 0, turn = 0, fire = false;
-  const menu = new Menu(BTN.COMBAT, b => { const n = b.image; if (n === 'FIRE') fire = true; if (n === 'GO') thrust = 1; if (n === 'STOP') thrust = -1; if (n === 'LEFT') turn = turn === -1 ? 0 : -1; if (n === 'RIGHT') turn = turn === 1 ? 0 : 1; if (n === 'UP') battle.player.target = 'hull'; if (n === 'DOWN') battle.player.target = 'weapons'; if (/RAM|SHEAR|SWEAP|GRAPPLE|NEGOT/.test(n)) say(`${n}: not yet implemented.`); });
+  const menu = new Menu(BTN.COMBAT, b => { const n = b.image; if (n === 'FIRE') fire = true; if (n === 'GO') thrust = 1; if (n === 'STOP') thrust = -1; if (n === 'LEFT') turn = turn === -1 ? 0 : -1; if (n === 'RIGHT') turn = turn === 1 ? 0 : 1; if (n === 'UP') battle.player.target = 'hull'; if (n === 'DOWN') battle.player.target = 'weapons'; if (n === 'GRAPPLE') { const p = battle.player, e = battle.enemy; if (Math.hypot(e.x - p.x, e.z - p.z) > 40) return say('Too far away to grapple.'); say('Grappling hooks away! Prepare for boarding...'); const eb = battle; scene.remove(enemySprite); battle = null; return go(boardingScreen(boardingFoes(eb.enemy), r => afterBoarding(r, eb, dest))); }
+    if (/RAM|SHEAR|SWEAP|NEGOT/.test(n)) say(`${n}: not yet implemented.`); });
   say(`Engaging the ${battle.enemy.name}!`);
   return { kind: 'combat', menu,
     update(dt) { const p = battle.player, e = battle.enemy;
@@ -188,6 +190,61 @@ function diskScreen(prev) {
   return { kind: 'disk', menu, draw(dt) { frame(); if (prev.kind === 'space' || prev.kind === 'orbit') renderSpace(); else drawAnim(dt); menu.draw(g, font); drawMsg(); } };
 }
 
+// ---------- boarding (OTC): OH.PCX frame, 24x24 TILE0 deck tiles, OCOMBAT buttons ----------
+const OHV = ui.viewports.OH_view, OHM = ui.viewports.OH_msg, T = 24;
+const monByName = n => monsters.find(m => m.name === n);
+function boardingFoes(enemy) { const n = Math.max(2, Math.min(8, Math.round(enemy.maxHull / 10))), kind = /SPIDER|HIVE/.test(enemy.name) ? 'NEOGI' : rng.next() < .5 ? 'HUMAN' : 'ORC';
+  return Array.from({ length: Math.ceil(n / 3) }, (_, i) => B.unitFromMonster(monByName(kind), Math.min(3, n - i * 3), rng, i)); }
+function afterBoarding(res, eb, dest) {
+  if (res === 'victory') { const e = eb.enemy; const loot = 200 + e.maxHull * 20; state.gold += loot; for (const c of state.crew) c.xp += 100;
+    say(`The ${e.name} is yours! ${loot} gp in plunder.`);
+    const ship = db.ships.find(s => s.name === e.name);
+    return go(warnScreen(`TAKE THE ${e.name} AS YOUR PRIZE?`, () => { if (ship) { state.ship = { name: ship.name, shipId: ship.id, tonnage: ship.tonnage, cargoCap: ship.cargo, hull: Math.max(1, Math.floor(ship.tonnage / 2)), weapons: state.ship.weapons, sprite: ship.id }; say(`You transfer your flag to the ${ship.name}.`); } finish(); }, finish)); }
+  say('Your boarding party is repelled!'); state.gold = Math.floor(state.gold / 2); finish();
+  function finish() { state.location = dest.key; save(); go(orbitScreen(planetOf(state.location))); }
+}
+function warnScreen(text, onYes, onNo) {
+  const menu = new Menu(BTN.WARN, b => (parseLabel(b.label).text === 'EXIT' ? onNo() : onYes()));
+  return { kind: 'warn', menu, draw() { g.fillStyle = '#000'; g.fillRect(100, 80, 140, 56); g.strokeStyle = '#a07030'; g.strokeRect(100.5, 80.5, 139, 55); font.draw(g, text.slice(0, 32), 106, 88, '#f0d070'); font.draw(g, text.slice(32, 64), 106, 96, '#f0d070'); menu.draw(g, font); } };
+}
+const tileImgs = {}; const tile = id => (tileImgs[id] ||= art2(`/tiles/TILE0_${String(id).padStart(3, '0')}.png`));
+function art2(p) { const i = new Image(); i.src = p; return i; }
+function boardingScreen(foeUnits, done, deckName) {
+  const names = Object.keys(decks), deck = decks[deckName || names[rng.int(0, Math.min(6, names.length - 1))]];
+  const party = state.crew.map((c, i) => B.unitFromCrew(c, db, i)).filter(u => u.hp > 0);
+  const b = B.newBoarding(deck, party, foeUnits, rng); B.startRound(b, rng); let cur = B.advance(b, rng), mode = 'move', shown = 0;
+  const flushLog = () => { while (shown < b.log.length) say(b.log[shown++]); };
+  const next = () => { B.endTurn(b, rng); cur = B.advance(b, rng); flushLog(); if (b.result) finish(); };
+  const finish = () => { B.applyToCrew(state, b); for (const c of state.crew) if (c.hp <= 0) c.hp = 1; save(); setTimeout(() => done(b.result), 600); };
+  const menu = new Menu(BTN.OCOMBAT, bt => { if (!cur || b.result) return; const n = bt.image || parseLabel(bt.label).text;
+    if (n === 'ATTK') { mode = 'attack'; say('Choose a target.'); }
+    else if (n === 'TURN') { const r = B.turnUndead(b, cur, rng); flushLog(); if (!r.ok) say(r.why); else next(); }
+    else if (n === 'QUIK') { B.advance(b, rng, true); flushLog(); if (b.result) finish(); }
+    else if (n === 'DONE' || n === 'DFND' || n === 'NEXT') next();
+    else if (n === 'VIEW') say(`${cur.name}: HP ${cur.hp}/${cur.hpEach} AC ${cur.ac} THAC0 ${cur.thac0}`);
+    else say(`${n}: not yet implemented.`); });
+  let camX = 0, camY = 0;
+  return { kind: 'boarding', menu, enter() { flushLog(); say('Boarding action!'); },
+    draw() {
+      g.drawImage(art('OH'), 0, 0);
+      const f = cur || B.alive(b)[0]; if (f) { camX = Math.max(0, Math.min(deck.w * T - OHV.w, f.x * T - OHV.w / 2)); camY = Math.max(0, Math.min(deck.h * T - OHV.h, f.y * T - OHV.h / 2)); }
+      g.fillStyle = '#000'; g.fillRect(OHV.x, OHV.y, OHV.w, OHV.h); g.save(); g.beginPath(); g.rect(OHV.x, OHV.y, OHV.w, OHV.h); g.clip();
+      for (let y = 0; y < deck.h; y++) for (let x = 0; x < deck.w; x++) { const px = OHV.x + x * T - camX, py = OHV.y + y * T - camY; if (px < OHV.x - T || py < OHV.y - T || px > OHV.x + OHV.w || py > OHV.y + OHV.h) continue;
+        const i = y * deck.w + x; if (i && deck.tile[i] === deck.tile[0] && deck.kind[i] === deck.kind[0]) continue; const im = tile(deck.tile[i]); if (im.complete && im.width) g.drawImage(im, px, py); }
+      for (const u of B.alive(b)) { const px = OHV.x + u.x * T - camX, py = OHV.y + u.y * T - camY;
+        g.fillStyle = u.side === 'party' ? '#2050c0' : u.turned ? '#606060' : '#b02010'; g.fillRect(px + 4, py + 4, 16, 16); if (u === cur) { g.strokeStyle = '#fff'; g.strokeRect(px + 2.5, py + 2.5, 19, 19); }
+        font.draw(g, u.name[0], px + 9, py + 9, '#fff'); if (u.count > 1) font.draw(g, String(u.count), px + 15, py + 15, '#ff0'); }
+      g.restore();
+      if (cur) { font.draw(g, cur.name, 196, 84, '#f0d070'); font.draw(g, `HP ${cur.hp}  AC ${cur.ac}`, 196, 92, '#f0d070'); font.draw(g, `MOVES ${B.squares(cur) - cur.moved}`, 196, 100, '#f0d070'); }
+      menu.draw(g, font); msgLines.slice(-5).forEach((l, i) => font.draw(g, l, OHM.x + 3, OHM.y + 2 + i * 7, '#f0d070'));
+    },
+    mouse(p, click) { if (!click || !cur || b.result) return false; if (p.x < OHV.x || p.y < OHV.y || p.x >= OHV.x + OHV.w || p.y >= OHV.y + OHV.h) return false;
+      const x = Math.floor((p.x - OHV.x + camX) / T), y = Math.floor((p.y - OHV.y + camY) / T), t = B.at(b, x, y);
+      if (t && t.side === 'foe') { const r = B.attack(b, cur, t, rng); flushLog(); if (!r.ok) say('Target is out of reach.'); else next(); mode = 'move'; return true; }
+      if (!t) { const r = B.moveTo(b, cur, x, y); if (!r.ok) say(r.why); else if (cur.moved >= B.squares(cur)) { const adj = B.alive(b).some(o => o.side === 'foe' && B.adjacent(cur, o)); if (!adj) next(); } }
+      return true; } };
+}
+
 // ---------- input + loop ----------
 cv.addEventListener('mousemove', e => { const p = toScreen(e); screen.mouse?.(p, false); screen.menu?.mouse(p.x, p.y, false); standard.mouse(p.x, p.y, false); });
 cv.addEventListener('click', e => { actx ||= new AudioContext(); const p = toScreen(e); if (screen.mouse?.(p, true)) return; if (screen.menu?.mouse(p.x, p.y, true)) return; if (screen.kind !== 'title') standard.mouse(p.x, p.y, true); });
@@ -195,7 +252,7 @@ addEventListener('keydown', e => { keys[e.code] = true; if (e.key.length === 1 &
 addEventListener('keyup', e => { keys[e.code] = false; });
 const q = new URLSearchParams(location.search);
 await ready(art('SF'), art('MTITLE'));
-if (q.has('screen')) { state ||= newGame(db); const s = q.get('screen'); go(s === 'port' ? portScreen() : s === 'space' ? (placeAt(planetOf(state.location)), spaceScreen()) : s === 'combat' ? combatScreen(map[1]) : s === 'district' ? districtScreen(q.get('type') || 'STR', 'store') : titleScreen()); }
+if (q.has('screen')) { state ||= newGame(db); const s = q.get('screen'); go(s === 'port' ? portScreen() : s === 'space' ? (placeAt(planetOf(state.location)), spaceScreen()) : s === 'combat' ? combatScreen(map[1]) : s === 'district' ? districtScreen(q.get('type') || 'STR', 'store') : s === 'boarding' ? boardingScreen([B.unitFromMonster(monByName('SKELETON'), 5, rng, 0), B.unitFromMonster(monByName('LICH'), 1, rng, 1)], r => { say(`Boarding: ${r}`); go(portScreen()); }) : titleScreen()); }
 else go(titleScreen());
 let last = performance.now();
 (function loop(now) { const dt = Math.min(.05, (now - last) / 1000); last = now; screen.update?.(dt); screen.draw(dt); requestAnimationFrame(loop); })(last);
