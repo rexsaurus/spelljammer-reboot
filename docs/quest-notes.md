@@ -5,7 +5,7 @@ These are our own short notes, used as a guide for reverse engineering. For full
   https://strategywiki.org/wiki/Spelljammer:_Pirates_of_Realmspace/Walkthrough ,
   https://strategywiki.org/wiki/Spelljammer:_Pirates_of_Realmspace/Chosen_hero
 - StrategyWiki main page: https://strategywiki.org/wiki/Spelljammer:_Pirates_of_Realmspace
-- Manual scan (not yet consulted for this pass): https://archive.org/details/spelljammer-pirates-of-realmspace-manual
+- Manual scan (consulted for ship-stat terms: tonnage sets hull points, cargo capacity, ship's rating, maneuverability): https://archive.org/details/spelljammer-pirates-of-realmspace-manual
 
 ## Overall arc
 1. Earn money with trade and passenger runs.
@@ -27,3 +27,8 @@ These are our own short notes, used as a guide for reverse engineering. For full
 
 Rules notes: ship movement is effectively 2D (plane-bound). Weapons can target Hull or Weapons, so hit-and-run against
 weapons works on big hulls.
+
+## Rules notes from the manual (paraphrased)
+- A ship's starting hull points equal its tonnage. Tonnage also limits crew and cargo.
+- Ship's rating (speed) depends on the helm and the helmsman's level. Maneuverability class comes from the hull design.
+- Ramming needs ships of roughly similar tonnage (a ram is required).

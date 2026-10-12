@@ -112,7 +112,8 @@ yet. A REA `function` call on 0x584ce was stopped before it finished.
 
 ---
 ## Pass 3: quest state, call graph, endgame (Oct 12, 2026)
-We matched our paraphrased checklist (`docs/quest-notes.md`) against SF3 string refs, plus two new heuristic tools:
+Reference used for rules: the game manual (archive.org item spelljammer-pirates-of-realmspace-manual), fetched only into the
+git-ignored extracted/ref/ and consulted for ship-stat definitions. We matched our paraphrased checklist (`docs/quest-notes.md`) against SF3 string refs, plus two new heuristic tools:
 `tools/sj_globals.py` (which DGROUP globals a function reads or writes) and `tools/sj_callgraph.py` (far-call graph).
 
 ### Named quest state (SF3 DGROUP)
@@ -147,8 +148,30 @@ We matched our paraphrased checklist (`docs/quest-notes.md`) against SF3 string 
 - Many quest functions have no far callers. They're reached through near calls or overlay trampolines, so the graph is
   partial.
 
-### Stat fields
-**Still not named.** Field-level decoding of the ships.shi (0x584ce) and items.itm (0x5857d) loaders is next.
+### Stat fields (named by matching data against AD&D 2e values and the manual's ship tables, not yet by loader code)
+**ITEMS.ITM** (136-byte record, u16 little-endian, byte offsets):
+| Offset | Name | Justification | Confidence |
+|---|---|---|---|
+| +20 | `dmg_small` (hi byte = dice count, lo byte = sides) | Hand axe 1d6, dirk 1d4, morning star 2d4, light crossbow 1d4 | High |
+| +24 | `dmg_large` (same packing) | Long sword 1d12, two-handed sword 3d6 (AD&D vs. large) | High |
+| +28..+32 | `range_short/med/long` | Catapults only (500/1000/1500) | Medium |
+| +34 | `xp_value` | 0 for mundane gear; rises with each magic bonus (+1 = 600 for chain) | Medium |
+| +36 | `weight` | Plate 50, chain/scale 40, banded 35, leather 15, field plate 60, long sword 4 | High |
+| +40 | `item_id` | Sequential and unique. Matches the ids in shop INV files | High |
+| +48 | `usable_mask` (class bits?) | 13 for leather/elfin chain, 5 for metal armor, 9 for blades | Low |
+| +52 | `price_gp` | Plate 600, banded 200, scale 120, chain 75, two-handed 50, long sword 15, leather 5 | High |
+| +69 (byte) | `ac_bonus` | Leather 2, scale 4, chain 5, banded 6, plate 7, field plate 8, shield 1 (= 10 − AD&D AC) | High |
+| +70 | `magic_plus` | 0..4, matches the "+N" in the name | High |
+| +74 | `name[30]` | — | High |
+
+**SHIPS.SHI** (414-byte record; these are named ship *instances*, not classes):
+| Offset | Name | Justification | Confidence |
+|---|---|---|---|
+| +0 | `tonnage` (= starting hull points) | Values 10..200. The manual says hull points equal tonnage | Medium |
+| +4 | `cargo_capacity` | Mostly half of +0, which matches the manual's ship tables (e.g. 100 → 50) | Medium |
+| +2, +8 | unknown (crew max? value?) | Don't match the manual's crew numbers | — |
+| +368 | `name[32]` | — | High |
+Confirm by reading 0x584ce / 0x5857d, or by checking the in-game ship and item screens against these values.
 
 ### Where the endgame can get stuck (candidates, ranked)
 1. **SF3→OTC→SF3 handoff around the citadel (stages 3→4).** OTC runs the boarding battle but never touches
