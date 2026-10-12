@@ -5,8 +5,36 @@ reverse engineering (`docs/engine-map.md`, `docs/quest-notes.md`, the SF3/OTC/SJ
 tables load **at runtime** from the player's own GOG copy (decoded into the git-ignored `extracted/`). The repo holds no
 game art and no copied manual or guide text.
 
-Code layout: `web/src/game/*.js` holds pure, DOM-free rules modules with unit tests (`npm test`). `web/src/play/*.js` holds
-Three.js and DOM front-ends. `web/game.html` is the playable build, and `web/index.html` stays the asset viewer.
+**Direction (Oct 12): a complete, faithful clone.** Every screen should match the original 320x200 layout and behavior.
+Code layout: `web/src/game/*.js` holds pure rules modules with unit tests (`npm test`). `web/src/retro/*.js` is the faithful
+front end: a 320x200 canvas, integer scaled, drawing the original frame PCX (SF), BTN button layouts and hotkeys, FNT fonts, MDA town
+animations and MSH sprites, with a first-person Three.js space view rendered at native viewport size (160x136 at 8,7).
+`web/game.html` is the game, and `web/index.html` stays the asset viewer. Data tools: sj_decode, sj_more, sj_data, sj_maps (orbits, deck/dungeon maps,
+monster records) and sj_ui (BTN layouts, frame viewports).
+
+### Screen-by-screen fidelity
+| Screen | Original source | Status |
+|---|---|---|
+| Title + PLAY menu | MTITLE.PCX, PLAY.BTN | done (TITLE.PCX renders black: its palette isn't applied yet) |
+| Port | SF.PCX frame, PORTnn.BTN, PORTnn.MDA, STANDARD.BTN icon bar | done |
+| Districts (store/warehouse/drydock/tavern/temple/hall/bank) | STRn/WRHn/DRYn/TAVn/TPLn/HALn/BNK0 .BTN + .MDA, BUYSTUFF.BTN | partial: menus are exact; buy/sell list layout is approximate; hall/bank/contracts are todo |
+| Space flight | SF.PCX, NSPACE.BTN, NAV.BTN, PLANETn/SUNn sprites | partial: real orbits; ship model, view switching (BOWVW/STERNVW/PORTVW/STARVW) and RADAR are todo |
+| Orbit/dock | DOCKn.BTN (n = orbit index - 1) | done |
+| Navigation | NAV.BTN, NAV2.BTN, NAVWIN | partial: destination list is synthesized; NAV2 system/inner/outer/points-of-interest is todo |
+| Space combat | COMBAT.BTN (fire/ram/shear/sweep/grapple/negotiate), TARGET.BTN | partial: fire, maneuver and target work; ram/shear/grapple/negotiate are todo |
+| Disk menu | DISK.BTN | done (localStorage) |
+| Ship/crew/log/manifest/prefs | SHIP, SHOWC, LOG, MANIFEST, PREF .BTN | todo (message-box summaries for now) |
+| Boarding (OTC) | OH.PCX frame (view 168x144), OHM*.DMP decks, MONSTERS.CHR, OCOMBAT/OMAIN/OWALK .BTN | todo, next |
+| Captain creation | RACE, SEX, CLASS, STAT, SETCREW, SETDIF .BTN | todo |
+| Cutscenes | STORY.LIB, BDA, FINALE0, SJINTRO* | todo |
+
+### Quest note: Rex's "necromancer's flying pyramid"
+No string in SF3, OTC, SJ, STORY.LIB or MONSTERS.CHR mentions a pyramid or necromancer. The undead stronghold with a LICH that
+the quest sends you to is the **dwarven citadel** (step D, stages 3→4: "ITS A DWARVEN CITADEL!!", "WEAPONS HAVE NO AFFECT ON THE
+CITADEL!" in SF3; CITADEL.MSH sprite; LICH in MONSTERS.CHR). That is our #1 endgame-bug candidate, the SF3→OTC→SF3 handoff
+through temp files. In the port, M4 must make the citadel a forced boarding action (space weapons do nothing), run the undead fight
+in the tactical engine, and award the sceptre and advance the stage directly in game state, with no temp-file handoff.
+
 
 Status key: **done** = playable and tested · **partial** = playable, but rules are approximate or have gaps · **todo**
 
