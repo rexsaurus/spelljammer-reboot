@@ -109,3 +109,58 @@ step where the game gets stuck.
 ### Stat fields
 Still not named. The loaders are known now (ships 0x584ce, items 0x5857d), but their field uses haven't been decompiled
 yet. A REA `function` call on 0x584ce was stopped before it finished.
+
+---
+## Pass 3: quest state, call graph, endgame (Oct 12, 2026)
+We matched our paraphrased checklist (`docs/quest-notes.md`) against SF3 string refs, plus two new heuristic tools:
+`tools/sj_globals.py` (which DGROUP globals a function reads or writes) and `tools/sj_callgraph.py` (far-call graph).
+
+### Named quest state (SF3 DGROUP)
+| Global | Proposed name | Evidence | Confidence |
+|---|---|---|---|
+| **DS:6AF4** | `main_quest_stage` (0..9) | Only ever compared against 0–9 and only changed with `inc`. Read and advanced only by the quest functions below. **Never touched by OTC.** | Medium-high |
+| DS:6AF6 | `quest_flag_a` (bool) | Set to 0/1, tested against 0, in the same quest functions | Medium (meaning unknown) |
+| DS:6AF8 | `quest_flag_b` (bool) | Same pattern | Medium (meaning unknown) |
+| DS:6AFA | `quest_substate` | Compared to 5/6 in the raid/encounter functions | Low |
+| DS:6AD8/6ADA | Quest/encounter target (far ptr or coords?) | Shared by every quest function | Low |
+| DS:6BBA | Encounter mode (0, 4, 5, 0xFFFE) | Set in hail and encounter code | Low |
+
+### Quest functions mapped to the checklist (SF3, merged image)
+| Stage(s) read | Function | Strings / role | Checklist step |
+|---|---|---|---|
+| 0 → inc | 0x52fb2 | Stage-0 check, then advance | A (envoy, level gate) — medium-low |
+| 1, 6, 9 | 0x67fc8 | Hail handler (`TOO FAR AWAY TO HAIL`, MOTHER SHIP, citadel). Advances the stage up to 3 times | B, F, H — medium |
+| 2, 4 | 0x6a40f (+0x6a3ee) | "Other points of interest" list (DWARVEN CITADEL, NEOGI MEETING). Advances | C, E — medium |
+| 3, 6, 7 | 0x7204b | Search result after boarding (`YOU FIND A SCEPTRE`, MOTHER SHIP, citadel). Advances up to 4 times | D, G — medium |
+| — | 0x54fa4 | NEOGI RAID encounter. Advances | F/G — medium |
+| 7 | 0x22323 (called from 0x183f3) | Ship-combat result. Advances twice | H (battle chain) — medium-low |
+| 9 | 0x17908 | Hail/final check at stage 9. Advances | H→I — medium-low |
+| — | 0x54d80 | Launches `finale.bda` (the ending cinematic is started from **SF3**) | I — medium |
+| — | 0x5723e, 0x77f13 | Citadel location; save/load blocked while at the citadel or docked | D — medium |
+| — | 0x77a25, 0x57df0 | Tavern rumors, rumor-file loader | — |
+
+### Main loop (call-graph pass)
+- **SF3: 0x183f3** has the largest far-call fan-out (49 callees). It holds flight-time messages (helm not responding),
+  reads stages 7/9 and calls the combat-result function 0x22323. **Proposed: space-flight main loop.** Medium.
+- Other dispatchers by fan-out: 0x5a5f9, 0x5d20c, 0x61287 (port/trade), 0x5723e, 0x5ca52, 0x6b5f9/0x6cbd9 (shops).
+- OTC: 0x5b244, 0x4b63d, 0x15a51, 0x4aec0 (boarding battle loop candidates, not separated yet).
+- Many quest functions have no far callers. They're reached through near calls or overlay trampolines, so the graph is
+  partial.
+
+### Stat fields
+**Still not named.** Field-level decoding of the ships.shi (0x584ce) and items.itm (0x5857d) loaders is next.
+
+### Where the endgame can get stuck (candidates, ranked)
+1. **SF3→OTC→SF3 handoff around the citadel (stages 3→4).** OTC runs the boarding battle but never touches
+   `main_quest_stage`. SF3 0x7204b has to see the right post-boarding state to award the sceptre and advance the stage.
+   If the result OTC passes back (via temp.crw / the `temp%d.sf` files, 0x76f0c / 0x57ec6 / 0x57f3f) is missing or
+   stale, the stage never moves. The save block at the citadel (0x77f13) suggests the designers already knew about a
+   state hazard there.
+2. **Battle-chain counting at stage 7 (0x22323 advances twice).** If a battle in the deathspider→mindspider→mothership
+   chain ends another way (fleeing, boarding instead of destroying), the expected number of advances may never happen.
+   Then stage 9 (0x17908) and the finale launcher (0x54d80) are never reached.
+3. **Hail at 0x67fc8 with stage 6/9** requires being in hail range at the right point of interest. A mismatched
+   DS:6AD8/6ADA target could make the meeting/raid unreachable.
+
+Next: make a save just before each step, dump `main_quest_stage` (find its offset in the save by diffing two saves
+taken one step apart), and see which transition fails. Then decompile 0x7204b, 0x22323 and 0x67fc8 into extracted/re/.
