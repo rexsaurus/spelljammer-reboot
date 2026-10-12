@@ -1,7 +1,8 @@
 // Game state and versioned JSON save/load.
 export const SAVE_VERSION = 1;
 export function newGame(db, { seed = Date.now() & 0xffff } = {}) {
-  const ship = db.ships.reduce((a, b) => (b.tonnage < a.tonnage ? b : a), db.ships[0]); // start in the smallest hull
+  const pool = db.ships.filter(s => s.tonnage >= 20); // start in the smallest seaworthy hull
+  const ship = (pool.length ? pool : db.ships).reduce((a, b) => (b.tonnage < a.tonnage ? b : a));
   const start = db.ports[0];
   return {
     version: SAVE_VERSION, seed, day: 1, gold: 1000, location: start.key, questStage: 0,

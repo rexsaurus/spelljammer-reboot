@@ -42,7 +42,7 @@ export function stepCombat(battle, playerInput, dt, rng) {
   return events;
 }
 export function startBattle(state, db, rng) {
-  const foeShip = db.ships[rng.int(0, Math.min(db.ships.length - 1, 9))];
+  const foes = db.ships.filter(s => s.name !== state.ship.name && s.tonnage <= state.ship.tonnage * 2); const foeShip = foes.length ? foes[rng.int(0, foes.length - 1)] : db.ships[0];
   const pool = [50, 51, 53].filter(id => db.itemsById[id]); const foe = { ...foeShip, hull: foeShip.tonnage, weapons: [pool[rng.int(0, pool.length - 1)], ...(foeShip.tonnage > 40 ? [pool[0]] : [])], sprite: rng.int(0, 9) };
   return { player: makeCombatant(state.ship, db, { z: 0 }), enemy: makeCombatant(foe, db, { z: -180, heading: Math.PI, ai: true }), result: null, loot: 100 + foeShip.tonnage * 10 };
 }
