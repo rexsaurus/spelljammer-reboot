@@ -44,7 +44,7 @@ function drawAnim(dt) { if (!anim || !anim.img.complete) return; anim.t += dt; i
 // ---------- screens ----------
 let screen = null;
 const go = s => { screen = s; s.enter?.(); };
-const standard = new Menu(BTN.STANDARD, b => { const n = b.image; if (n === 'DISK') go(diskScreen(screen)); if (n === 'PREFS') say('Preferences: not yet implemented.'); if (n === 'SHOWSHIP') shipStatus(); if (n === 'SHOWUS') crewStatus(); if (n === 'DOCK') { if (screen.kind === 'space') tryOrbit(true); } });
+const standard = new Menu(BTN.STANDARD, b => { const n = b.image; if (n === 'DISK') go(diskScreen(screen)); if (n === 'PREFS') say('Preferences: not yet implemented.'); if (n === 'SHOWSHIP') go(shipMenuScreen(screen)); if (n === 'SHOWUS') go(crewMenuScreen(screen)); if (n === 'DOCK') { if (screen.kind === 'space') tryOrbit(true); } });
 function frame(dt) { g.drawImage(art('SF'), 0, 0); }
 function drawMsg() { msgLines.forEach((l, i) => font.draw(g, l, MSG.x + 3, MSG.y + 2 + i * 7, '#f0d070')); }
 function shipStatus() { const s = state.ship; say(`${s.name}: hull ${s.hull}/${s.tonnage}  cargo ${cargoUsed(state, db).toFixed(0)}/${s.cargoCap}`, `weapons: ${s.weapons.map(id => db.itemsById[id]?.name).join(', ')}`, `gold ${state.gold}  day ${state.day}`); }
@@ -54,10 +54,55 @@ function titleScreen() {
   const menu = new Menu(BTN.PLAY, b => {
     actx ||= new AudioContext();
     if (b.id === 20) { if (!state) state = newGame(db); go(portScreen()); }
-    if (b.id === 21) { state = newGame(db); save(); say('A new captain takes command.'); go(portScreen()); }
+    if (b.id === 21) go(captainScreen());
     if (b.id === 22) say('');
   });
   return { kind: 'title', menu, draw() { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.drawImage(art('MTITLE'), 0, 0); g.fillStyle = '#000c'; g.fillRect(84, 126, 160, 46); menu.draw(g, font); } };
+}
+
+// ---------- captain creation: SEX -> RACE -> CLASS -> ALGN -> SHOWCR (re-roll/ok) ----------
+const CLASS_MAP = { CLERIC: 'CLERIC', FIGHTER: 'FIGHTER', RANGER: 'FIGHTER', PALADIN: 'FIGHTER', MU: 'MAGE', THIEF: 'THIEF' }; // ranger/paladin use fighter tables for now
+function captainScreen() {
+  const pick = {}; let step = 'SEX', cap = null;
+  const steps = ['SEX', 'RACE', 'CLASS', 'ALGN', 'SHOWCR'];
+  const menus = {
+    SEX: new Menu(BTN.SEX, b => { pick.sex = b.image; step = 'RACE'; }),
+    RACE: new Menu(BTN.RACE, b => { pick.race = b.image; step = 'CLASS'; }),
+    CLASS: new Menu(BTN.CLASS, b => { pick.cls = b.image; step = 'ALGN'; }),
+    ALGN: new Menu(BTN.ALGN, b => { pick.algn = parseLabel(b.label).text.replace(/^\d\. /, ''); roll(); step = 'SHOWCR'; }),
+    SHOWCR: new Menu(BTN.SHOWCR.map(b => ({ ...b, x: b.x + 90, y: b.y + 40 })), b => { const t = parseLabel(b.label).text; if (t === 'RE-ROLL') roll(); if (t === 'OK') { state = newGame(db); Object.assign(cap, { race: pick.race, sex: pick.sex, algn: pick.algn, captain: true, name: 'CAPTAIN' }); state.crew[0] = cap; save(); say(`Captain ${cap.name} takes command of the ${state.ship.name}.`); go(portScreen()); } else say(`${t}: available from the crew screen once in port.`); }),
+  };
+  const roll = () => { cap = makeCharacter(rng, CLASS_MAP[pick.cls] || 'FIGHTER'); cap.subclass = pick.cls; };
+  const prompt = { SEX: 'CHOOSE YOUR SEX', RACE: 'CHOOSE YOUR RACE', CLASS: 'CHOOSE YOUR CLASS', ALGN: 'CHOOSE YOUR ALIGNMENT', SHOWCR: 'YOUR CAPTAIN' };
+  return { kind: 'create', get menu() { return menus[step]; },
+    draw() { g.drawImage(art('OPTION'), 0, 0); font.draw(g, prompt[step], 160 - font.width(prompt[step]) / 2, 40, '#2a1406');
+      if (step === 'SHOWCR' && cap) { const L = [`${(pick.race || '').replace('ELF_H', 'HALF-ELF')} ${(pick.sex || '')} ${pick.cls === 'MU' ? 'MAGE' : pick.cls}`, pick.algn, `STR ${cap.str}  INT ${cap.int}  WIS ${cap.wis}`, `DEX ${cap.dex}  CON ${cap.con}  CHA ${cap.cha}`, `HP ${cap.hpMax}`];
+        L.forEach((l, i) => font.draw(g, l, 96, 60 + i * 10, '#2a1406')); }
+      menus[step].draw(g, font); } };
+}
+function shipMenuScreen(prev) {
+  const s = state.ship; let page = null;
+  const menu = new Menu(BTN.SHIP, b => { const t = parseLabel(b.label).text;
+    if (/EXIT/.test(t)) return go(prev);
+    if (/SPECIFICATIONS/.test(t)) page = [`${s.name}`, `TONNAGE ${s.tonnage}`, `HULL POINTS ${s.hull}/${s.tonnage}`, `CARGO CAPACITY ${s.cargoCap} TONS`, `WEAPON MOUNTS ${Math.max(1, Math.floor(s.tonnage / 10))}`];
+    if (/CARGO/.test(t)) page = Object.entries(state.cargo).map(([id, n]) => `${n} ${db.itemsById[id]?.name}`).concat([`USED ${cargoUsed(state, db).toFixed(1)} OF ${s.cargoCap}`]);
+    if (/WEAPON/.test(t)) page = s.weapons.map(id => { const w = db.itemsById[id]; return `${w?.name} ${w?.dmgLarge.n}D${w?.dmgLarge.sides}`; });
+    if (/REPAIRS/.test(t)) page = [`HULL ${s.hull}/${s.tonnage}`, 'REPAIRS ARE MADE AT A DRYDOCK'];
+    if (/LOG/.test(t)) page = state.log.slice(-15);
+    if (/MANIFEST/.test(t)) page = state.crew.map(c => `${c.name} ${c.cls} L${c.level} HP ${c.hp}/${c.hpMax}`).concat(state.items?.length ? ['', ...state.items] : []); });
+  return { kind: 'ship', menu, draw(dt) { frame(); g.fillStyle = '#000'; g.fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h); (page || []).slice(0, 16).forEach((l, i) => font.draw(g, String(l).slice(0, 30), VIEW.x + 3, VIEW.y + 3 + i * 8, '#f0d070')); menu.draw(g, font); drawMsg(); } };
+}
+function crewMenuScreen(prev) {
+  let sel = 0, view = false;
+  const menu = new Menu(BTN.STAT, b => { const t = parseLabel(b.label).text;
+    if (/EXIT/.test(t)) return go(prev);
+    if (/VIEW CREW/.test(t)) { view = true; sel = (sel + (view ? 1 : 0)) % Math.max(1, state.crew.length); }
+    else say(`${t}: not yet implemented.`); });
+  return { kind: 'crew', menu, draw() { frame(); g.fillStyle = '#000'; g.fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h);
+    const c = state.crew[sel]; if (c) { const w = db.itemsById[c.equip.weapon]?.name || 'NONE', a = db.itemsById[c.equip.armor]?.name || 'NONE';
+      [c.name, `${c.subclass === 'MU' ? 'MAGE' : c.subclass || c.cls}  LEVEL ${c.level}`, `XP ${c.xp}`, `HP ${c.hp}/${c.hpMax}`, '', `STR ${c.str}  INT ${c.int}`, `WIS ${c.wis}  DEX ${c.dex}`, `CON ${c.con}  CHA ${c.cha}`, '', `WEAPON ${w}`, `ARMOR ${a}`, `SHIELD ${db.itemsById[c.equip.shield]?.name || 'NONE'}`]
+        .forEach((l, i) => font.draw(g, l.slice(0, 30), VIEW.x + 3, VIEW.y + 3 + i * 9, '#f0d070')); font.draw(g, `${sel + 1}/${state.crew.length}`, VIEW.x + 3, VIEW.y + 126, HILITE); }
+    menu.draw(g, font); drawMsg(); } };
 }
 
 function portScreen() {
@@ -281,7 +326,7 @@ addEventListener('keydown', e => { keys[e.code] = true; if (e.key.length === 1 &
 addEventListener('keyup', e => { keys[e.code] = false; });
 const q = new URLSearchParams(location.search);
 await ready(art('SF'), art('MTITLE'));
-if (q.has('screen')) { state ||= newGame(db); const s = q.get('screen'); go(s === 'port' ? portScreen() : s === 'space' ? (placeAt(planetOf(state.location)), spaceScreen()) : s === 'combat' ? combatScreen(map[1]) : s === 'district' ? districtScreen(q.get('type') || 'STR', 'store') : s === 'boarding' ? boardingScreen([B.unitFromMonster(monByName('SKELETON'), 5, rng, 0), B.unitFromMonster(monByName('LICH'), 1, rng, 1)], r => { say(`Boarding: ${r}`); go(portScreen()); }) : titleScreen()); }
+if (q.has('screen')) { state ||= newGame(db); const s = q.get('screen'); go(s === 'port' ? portScreen() : s === 'space' ? (placeAt(planetOf(state.location)), spaceScreen()) : s === 'combat' ? combatScreen(map[1]) : s === 'district' ? districtScreen(q.get('type') || 'STR', 'store') : s === "create" ? captainScreen() : s === 'ship' ? shipMenuScreen(portScreen()) : s === 'crew' ? crewMenuScreen(portScreen()) : s === 'boarding' ? boardingScreen([B.unitFromMonster(monByName('SKELETON'), 5, rng, 0), B.unitFromMonster(monByName('LICH'), 1, rng, 1)], r => { say(`Boarding: ${r}`); go(portScreen()); }) : titleScreen()); }
 else go(titleScreen());
 let last = performance.now();
 (function loop(now) { const dt = Math.min(.05, (now - last) / 1000); last = now; screen.update?.(dt); screen.draw(dt); requestAnimationFrame(loop); })(last);

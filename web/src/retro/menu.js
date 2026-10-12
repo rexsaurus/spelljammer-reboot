@@ -8,7 +8,7 @@ export class Menu {
   hit(x, y) { return this.buttons.findIndex(b => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h); }
   draw(g, font) {
     this.buttons.forEach((b, i) => {
-      if (b.image) { const im = art(b.image); if (im.complete && im.width) g.drawImage(im, b.x, b.y); if (i === this.hover) { g.strokeStyle = HOT; g.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1); } return; }
+      if (b.image) { const im = art(b.image); if (im.complete && im.naturalWidth) g.drawImage(im, b.x, b.y); else { g.fillStyle = '#000'; g.fillRect(b.x, b.y, b.w, b.h); g.strokeStyle = '#a07030'; g.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1); const t = b.image.replace('ELF_H', 'HALF-ELF').replace(/^MU$/, 'MAGE'); font.draw(g, t, b.x + Math.max(1, (b.w - font.width(t)) / 2), b.y + b.h / 2 - 3, i === this.hover ? HOT : '#f0d070'); } if (i === this.hover) { g.strokeStyle = HOT; g.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1); } return; }
       const { text, hotIndex } = parseLabel(b.label);
       const x0 = b.x + 2, y0 = b.y + 1; let x = x0;
       [...text].forEach((ch, k) => { x = font.draw(g, ch, x, y0, k === hotIndex ? (i === this.hover ? HOT : HILITE) : (i === this.hover ? HOT : TEXT)); });
