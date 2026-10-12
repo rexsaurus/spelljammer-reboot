@@ -1,0 +1,4 @@
+game/
+extracted/
+*.exe
+.DS_Store
