@@ -58,4 +58,3 @@ comparisons (ship screen vs. record values), and neither has been done. We're de
 2. Then map the SF3 loaders for `ships.shi`/`items.itm`/`%s%d.inv`/`.prt` and name the ITM/SHI fields by their uses
    (damage, armor, speed, hull points, etc.).
 3. Find the SF3 save writer (near 0x16ca5/0x1fc69 callers) to learn the save layout, then the quest flags.
-EOF
