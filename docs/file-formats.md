@@ -97,3 +97,13 @@ The output is SMF format 0, division 60, tempo 500000 µs (= Miles' 120 Hz clock
 The base palette for 0–63 isn't stored as a raw 6-bit run in SJ.EXE (only a lookup table matched). The definitive fix is to take a
 DOSBox screenshot in-game (Ctrl+F5 writes a paletted PNG) and read its palette. Item/ship stat field meanings, BTN hit-boxes,
 OML/DMP maps, BDA cutscenes, and ICON0/SPELLANM entries are also still open.
+
+## Map data (tools/sj_maps.py)
+- **Realmspace bodies** live in SF3.EXE code, not a data file. An init routine copies each planet name into a 0x4C-byte record
+  (DS:0x6c06 ANADIA … DS:0x6e1a H'CATHA) and stores fields with immediate moves. Orbit radius (+0x2c): Anadia 640, Coliar 1280,
+  Toril 1920, Karpri 2560, Chandos 6400, Glyth 7680, Garden 10240. H'Catha's radius isn't set there (it's a wandering world). Orbit index (+0x30)
+  equals the PRT tens digit, so Hissta/Athenar (PORT20/21) are on Coliar. Fields +0x32/+0x34 (angle/size? period?) are unconfirmed.
+  Port-name far-pointer table at DS:0x3f6c (16 slots: Umberguard, Hissta, Athenar, Waterdeep, Minagwbe, Clive's Den, The Spindle).
+- **OHM*.DMP** (10 × 3098 bytes) are **tactical deck maps** for OTC boarding fights, not star maps: 26-byte header (w,h = 32,32
+  at +12), then 32×32 cells of 3 bytes (tile, kind, extra). Kind 0 = floor, 1 = wall, 0x22 = door.
+- **DNG*.OML** (12) are dungeon maps: u16 header, 32×32 u8 grid (0xff empty), then object records (not decoded yet).

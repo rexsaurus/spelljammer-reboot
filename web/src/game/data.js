@@ -9,7 +9,8 @@ export function normalizeItem(raw) {
     id: raw.id, name: raw.name.trim(),
     dmgSmall: dice(f[10]), dmgLarge: dice(f[12]),
     range: [f[14], f[15], f[16]], xp: f[17], weight: f[18], itemId: f[20],
-    usableMask: f[24], price: f[26], acBonus: f[34] >> 8, magic: f[35] & 255,
+    usableMask: f[24], price: f[26] + f[27] * 65536, // u32 (Minor Helm = 100,000 gp)
+    acBonus: f[34] >> 8, magic: f[35] & 255,
     shipWeapon: WEAPON_IDS.has(raw.id),
   };
 }

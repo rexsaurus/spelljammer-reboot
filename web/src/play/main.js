@@ -2,20 +2,22 @@
 import * as THREE from 'three';
 import { buildDb } from '../game/data.js';
 import { newGame, saveTo, loadFrom } from '../game/state.js';
-import { layout, travel } from '../game/starmap.js';
+import { layout, travel, bodyPositions, displayRadius } from '../game/starmap.js';
 import { buy, sell, buyPrice, sellPrice, cargoUsed, maxWeapons, repair, repairCost } from '../game/economy.js';
 import { startBattle, stepCombat, resolveBattle, rangeOf } from '../game/combat.js';
 import { makeRng } from '../game/rng.js';
 
 const j = u => fetch(u).then(r => r.ok ? r.json() : null).catch(() => null);
-const [manifest, m2, items, ships, ports, inventories, rumors] = await Promise.all(['/manifest.json', '/manifest2.json', '/data/items.json', '/data/ships.json', '/data/ports.json', '/data/inventories.json', '/data/rumors.json'].map(j));
+const [manifest, m2, items, ships, ports, inventories, rumors, bodiesJson] = await Promise.all(['/manifest.json', '/manifest2.json', '/data/items.json', '/data/ships.json', '/data/ports.json', '/data/inventories.json', '/data/rumors.json', '/data/bodies.json'].map(j));
 if (!manifest || !items || !ships || !ports) {
   const e = document.getElementById('err'); e.style.display = 'flex';
   e.textContent = 'No decoded game data. Run tools/sj_decode.py, sj_more.py and sj_data.py against your own GOG copy (game/).';
   throw new Error('missing extracted data');
 }
 const db = buildDb({ items, ships, ports, inventories, rumors });
-const map = layout(db.ports);
+const bodies = bodiesJson?.bodies || [];
+const map = layout(db.ports, bodies);
+const disp = o => { const h = Math.hypot(o.x, o.z) || 1, f = displayRadius(h) / h; return { x: o.x * f, z: o.z * f }; };
 const rng = makeRng(Date.now() & 0xffffffff);
 let state = loadFrom(localStorage, 'auto') || newGame(db);
 const hud = document.getElementById('hud'), logEl = document.getElementById('log'), panel = document.getElementById('panel');
@@ -47,14 +49,19 @@ function shipSprite(type) {
 // ---- star map ----
 const mapGroup = new THREE.Group(); scene.add(mapGroup);
 const sphereColors = [0x88aaff, 0xffaa66, 0x66ffaa, 0xff66aa, 0xffff66, 0xaa88ff, 0x66ddff];
+mapGroup.add(new THREE.Mesh(new THREE.SphereGeometry(22, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffdd55 }))); // the sun
+function label(text, x, y, z, color = '#fd8') { const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d'); g.fillStyle = color; g.font = '20px monospace'; g.fillText(text, 4, 22);
+  const l = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true })); l.scale.set(176, 22, 1); l.position.set(x, y, z); mapGroup.add(l); }
+for (const b of bodyPositions(bodies)) { const d = disp(b), R = Math.hypot(d.x, d.z);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(R - .6, R + .6, 128), new THREE.MeshBasicMaterial({ color: b.real ? 0x443322 : 0x221111, side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; mapGroup.add(ring);
+  const pm = new THREE.Mesh(new THREE.SphereGeometry(8, 16, 10), new THREE.MeshBasicMaterial({ color: sphereColors[b.idx % sphereColors.length] })); pm.position.set(d.x, 0, d.z); mapGroup.add(pm);
+  label(b.name, d.x, -18, d.z, '#9ab'); }
 const portMeshes = map.map(p => {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(14, 20, 12), new THREE.MeshBasicMaterial({ color: sphereColors[p.sphere % sphereColors.length] }));
-  m.position.set(p.x, 0, p.z); m.userData.port = p; mapGroup.add(m);
-  const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d'); g.fillStyle = '#fd8'; g.font = '20px monospace'; g.fillText(p.name, 4, 22);
-  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true })); label.scale.set(128, 16, 1); label.position.set(p.x, 26, p.z); mapGroup.add(label);
-  return m;
+  const m = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 10), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const dp = disp(p); p = { ...p, dx: dp.x, dz: dp.z }; m.position.set(p.dx, 12, p.dz); m.userData.port = p; mapGroup.add(m);
+  label(p.name, p.dx, 30, p.dz); return m;
 });
-const marker = new THREE.Mesh(new THREE.RingGeometry(20, 24, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })); marker.rotation.x = -Math.PI / 2; mapGroup.add(marker);
+const marker = new THREE.Mesh(new THREE.RingGeometry(10, 13, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })); marker.rotation.x = -Math.PI / 2; mapGroup.add(marker);
 const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
 renderer.domElement.addEventListener('click', e => {
   if (mode !== 'map') return; mouse.set(e.clientX / innerWidth * 2 - 1, -e.clientY / innerHeight * 2 + 1); ray.setFromCamera(mouse, camera);
@@ -129,9 +136,9 @@ function tick() {
       `Weapons: ${p.weapons.map(w => `${w.item.name}${w.disabled ? ' (broken)' : w.cd > 0 ? ` ${w.cd.toFixed(1)}s` : ' READY'}`).join(', ')}\nTarget: ${p.target.toUpperCase()} (T)   W/S thrust  A/D turn  Space fire   Escape: get >400 away`;
     if (battle.result) endCombat();
   } else if (mode === 'map') {
-    const here = map.find(p => p.key === state.location); marker.position.set(here.x, 0, here.z);
-    const t = performance.now() / 20000; camera.position.set(Math.cos(t) * 700, 520, Math.sin(t) * 700); camera.lookAt(0, 0, 0);
-    hud.textContent = `STAR MAP (placeholder layout) — Day ${state.day}   Gold ${state.gold}   ${state.ship.name} hull ${state.ship.hull}/${state.ship.tonnage}\nAt ${portName(state.location)}. Click a port to travel there (or click your port to go ashore).`;
+    const here = disp(map.find(p => p.key === state.location)); marker.position.set(here.x, 12, here.z);
+    const t = performance.now() / 20000; camera.position.set(Math.cos(t) * 750, 650, Math.sin(t) * 750); camera.lookAt(0, 0, 0);
+    hud.textContent = `REALMSPACE (orbit radii from SF3; angles approximate) — Day ${state.day}   Gold ${state.gold}   ${state.ship.name} hull ${state.ship.hull}/${state.ship.tonnage}\nAt ${portName(state.location)}. Click a port to travel there (or click your port to go ashore).`;
   } else hud.textContent = '';
   logEl.textContent = state.log.slice(-5).join('\n');
   renderer.render(scene, camera); requestAnimationFrame(tick);

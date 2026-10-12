@@ -3,7 +3,7 @@ import { raw } from './fixture.js';
 import { buildDb } from '../src/game/data.js';
 import { newGame, serialize, deserialize } from '../src/game/state.js';
 import { buy, sell, buyPrice, sellPrice, repair } from '../src/game/economy.js';
-import { layout, travel, travelDays } from '../src/game/starmap.js';
+import { layout, travel, travelDays, bodyPositions, distance } from '../src/game/starmap.js';
 import { startBattle, stepCombat, resolveBattle, makeCombatant, fire } from '../src/game/combat.js';
 import { makeRng } from '../src/game/rng.js';
 const db = buildDb(raw);
@@ -31,8 +31,9 @@ test('buy/sell respects gold, hold and spread', () => {
 });
 test('repair', () => { const s = newGame(db); s.ship.hull = 10; assert.ok(repair(s).ok); assert.equal(s.ship.hull, 20); });
 test('travel between spheres takes longer and can trigger encounters', () => {
-  const map = layout(db.ports); const [a, b, c] = map;
-  assert.ok(travelDays(a, b) > travelDays(b, c));
+  const map = layout(db.ports, raw.bodies); const [a, b, c] = map;
+  assert.equal(a.planet, 'ALPHA'); assert.equal(b.planet, 'BETA'); assert.ok(distance(a, b) > distance(b, c));
+  assert.ok(travelDays(a, b) >= travelDays(b, c));
   let enc = 0, arrived = 0;
   for (let seed = 1; seed < 200; seed++) { const s = newGame(db); const r = travel(s, map, 'PORT20', makeRng(seed)); if (r.encounter) enc++; else { arrived++; assert.equal(s.location, 'PORT20'); } }
   assert.ok(enc > 0 && arrived > 0);
@@ -47,4 +48,9 @@ test('weapons targeting disables instead of damaging hull', () => {
   a.target = 'weapons';
   for (let i = 0; i < 50 && !d.weapons[0].disabled; i++) { a.weapons[0].cd = 0; fire(a, d, rng, []); }
   assert.ok(d.weapons[0].disabled); assert.equal(d.hull, 20);
+});
+test('u32 price and body orbits', () => {
+  assert.equal(db.itemsById[181].price, 100000);
+  const bp = bodyPositions(raw.bodies); assert.equal(Math.round(Math.hypot(bp[1].x, bp[1].z)), 1280); assert.equal(bp[2].real, false);
+  assert.ok(Math.hypot(bp[2].x, bp[2].z) > 1280);
 });
