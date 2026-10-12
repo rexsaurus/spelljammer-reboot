@@ -29,7 +29,7 @@ test('buy/sell respects gold, hold and spread', () => {
   assert.equal(sell(s, db, 9, 1).ok, false);
   s.gold = 0; assert.equal(buy(s, db, 45).why, 'not enough gold');
 });
-test('repair', () => { const s = newGame(db); s.ship.hull = 10; assert.ok(repair(s).ok); assert.equal(s.ship.hull, 20); });
+test('repair', () => { const s = newGame(db); s.ship.hull = 10; assert.ok(repair(s).ok); assert.equal(s.ship.hull, s.ship.tonnage); });
 test('travel between spheres takes longer and can trigger encounters', () => {
   const map = layout(db.ports, raw.bodies); const [a, b, c] = map;
   assert.equal(a.planet, 'ALPHA'); assert.equal(b.planet, 'BETA'); assert.ok(distance(a, b) > distance(b, c));

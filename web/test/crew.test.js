@@ -35,3 +35,9 @@ test('hull purchase with trade-in', () => {
   assert.ok(buyHull(s, db, brig.id).ok); assert.equal(s.gold, expect); assert.equal(s.ship.hull, 60); assert.equal(s.ship.cargoCap, 30);
   assert.equal(buyHull(s, db, brig.id).ok, false); const p = newGame(db); p.gold = 0; assert.equal(buyHull(p, db, brig.id).why, 'not enough gold');
 });
+import { buyHullClass, HULLS } from '../src/game/hulls.js';
+test('start in a galleon; hull classes use shipyard prices with half trade-in', () => {
+  const s = newGame(db); assert.equal(s.ship.hullClass, 'GALLEON'); assert.equal(s.ship.tonnage, HULLS.GALLEON.tonnage);
+  s.gold = 0; const r = buyHullClass(s, 'TRADESMAN'); assert.ok(r.ok); assert.equal(r.tradeIn, 25000); assert.equal(s.gold, 10000); assert.equal(s.ship.hullClass, 'TRADESMAN');
+  assert.equal(buyHullClass(s, 'GALLEON').why, 'not enough gold');
+});

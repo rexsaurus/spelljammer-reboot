@@ -9,7 +9,7 @@ import { layout, travel, bodyPositions } from '../game/starmap.js';
 import { buy, sell, buyPrice, sellPrice, cargoUsed, repair, repairCost } from '../game/economy.js';
 import { startBattle, stepCombat, resolveBattle } from '../game/combat.js';
 import { makeCharacter, hire, hireCost, MAX_CREW } from '../game/crew.js';
-import { buyHull, hullPrice, tradeInValue } from '../game/shipyard.js';
+import { forSale, buyHullClass } from '../game/hulls.js';
 import { makeRng } from '../game/rng.js';
 import * as B from '../game/boarding.js';
 import * as Q from '../game/quest.js';
@@ -107,14 +107,15 @@ function crewMenuScreen(prev) {
 
 function portScreen() {
   const key = state.location, btns = BTN[key] || [];
+  const DRYFILE = l => /DRYDOCK/.test(l) ? 'DRY1' : /SHIPYARD/.test(l) ? 'DRY2' : /JAMM/.test(l) ? 'DRY3' : /HARBORMASTER/.test(l) ? 'DRY4' : null;
   const classify = l => { const t = l.replace('^', ''); return /E?XIT/.test(t) && /^E\^?XIT|EXIT/.test(t) && t.startsWith('EXIT') ? 'EXIT' : /PUB|TAVERN|ALE HOUSE|PARROT/.test(t) ? 'TAV' : /TEMPLE/.test(t) ? 'TPL' : /WAREHOUSE|DEPOT|BORROWED/.test(t) ? 'WRH' : /DRYDOCK|SHIPYARD|JAMM|HARBORMASTER/.test(t) ? 'DRY' : /STORE|SUPPLIES|ARMORY|WEAPONS|ODDITIES/.test(t) ? 'STR' : /MONEYLENDER|BANK/.test(t) ? 'BNK' : /HALL|COUNCIL|LORDS|CLIVE/.test(t) ? 'HAL' : 'HAL'; };
-  const menu = new Menu(btns, b => { const t = classify(b.label); if (t === 'EXIT') { say(`You cast off from ${map.find(p => p.key === key)?.name}.`); return go(orbitScreen(planetOf(key))); } go(districtScreen(t, parseLabel(b.label).text)); });
+  const menu = new Menu(btns, b => { const t = classify(b.label); if (t === 'EXIT') { say(`You cast off from ${map.find(p => p.key === key)?.name}.`); return go(orbitScreen(planetOf(key))); } go(districtScreen(t, parseLabel(b.label).text, t === 'DRY' ? DRYFILE(b.label) : null)); });
   return { kind: 'port', menu, enter() { setAnim(key); save(); say(`Welcome to ${map.find(p => p.key === key)?.name}.`); }, draw(dt) { frame(); drawAnim(dt); menu.draw(g, font); standard.draw(g, font); drawMsg(); } };
 }
 
 function districtFile(type) { const i = portIdx(state.location); for (const k of [`${type}${i}`, `${type}1`, `${type}0`]) if (BTN[k]) return k; return null; }
-function districtScreen(type, title) {
-  const file = districtFile(type), btns = (BTN[file] || []), loc = state.location;
+function districtScreen(type, title, fileOverride) {
+  const file = fileOverride || districtFile(type), btns = (BTN[file] || []), loc = state.location;
   let list = null; // overlay list inside the viewport (buy/sell/hulls/recruits)
   const back = () => go(portScreen());
   const listOf = (rows, pick) => { list = { rows, pick, top: 0 }; };
@@ -127,9 +128,16 @@ function districtScreen(type, title) {
       else if (/SELL/.test(t)) listOf(Object.entries(state.cargo).map(([id, q]) => ({ label: `${q} ${db.itemsById[id].name}`, right: `${sellPrice(db.itemsById[id], loc)}`, id: +id })), r => { const x = sell(state, db, r.id); say(x.ok ? `Sold for ${x.gain} gp.` : x.why); list = null; });
       else if (/MANIFEST/.test(t)) shipStatus(); else say('The clerk has no contracts for you today.');
     }
-    if (type === 'DRY') {
+        if (type === 'DRY') {
+      const hulls = forSale(db.shops[file] || [], db.itemsById);
+      if (/^BUY/.test(t)) {
+        const rows = hulls.map(h => ({ label: `${h.name} ${h.tonnage}T`, right: `${h.price}`, h })).concat(shopRows().filter(i => i.shipWeapon).map(i => ({ label: i.name, right: `${buyPrice(i, loc)}`, id: i.id })));
+        listOf(rows, r => { const x = r.h ? buyHullClass(state, r.h.name) : buy(state, db, r.id); say(x.ok ? (r.h ? `Your new ${r.h.name} is ready (net ${x.cost} gp).` : `${db.itemsById[r.id].name} mounted.`) : x.why); if (r.h) list = null; save(); }); return; }
+      if (/CHANGE SHIPS NAME/.test(t)) { const n = prompt('ENTER NEW SHIP NAME', state.ship.name); if (n) { state.ship.name = n.toUpperCase().slice(0, 20); say(`She is now the ${state.ship.name}.`); } save(); return; }
+      if (/^SELL/.test(t)) { say('Shipwrights buy no used gear today.'); return; }
+      if (false) { listOf(hulls.map(h => ({ label: `${h.name} ${h.tonnage}T`, right: `${h.price}`, h })), r => { const x = buyHullClass(state, r.h.name); say(x.ok ? `Your new ${r.h.name} is ready (net ${x.cost} gp).` : x.why); list = null; }); save(); return; }
       if (/REPAIR HULL/.test(t)) { const x = repair(state); say(x.ok ? `Hull repaired for ${x.cost} gp.` : x.why); }
-      else if (/MODIFY/.test(t)) listOf(db.ships.filter(s => s.id !== state.ship.shipId).map(s => ({ label: `${s.name} ${s.tonnage}T`, right: `${hullPrice(s)}`, id: s.id })), r => { const x = buyHull(state, db, r.id); say(x.ok ? `You now command the ${state.ship.name} (net ${x.cost} gp).` : x.why); list = null; });
+      else if (/MODIFY/.test(t)) go(warnScreen('HULL MODIFICATION IS NOT YET AVAILABLE.', back, back));
       else listOf(shopRows().filter(i => i.shipWeapon).map(i => ({ label: i.name, right: `${buyPrice(i, loc)}`, id: i.id })), r => { const x = buy(state, db, r.id); say(x.ok ? `${db.itemsById[r.id].name} mounted.` : x.why); });
     }
     if (type === 'TAV') {
@@ -146,7 +154,7 @@ function districtScreen(type, title) {
   };
   const menu = new Menu(btns, act);
   const buyBtns = new Menu(BTN.BUYSTUFF.map(b => ({ ...b, x: b.x + VIEW.x, y: b.y + VIEW.y + 30 })), b => { const t = parseLabel(b.label).text; if (/EXIT/.test(t)) list = null; if (/ADD/.test(t)) list.top = Math.min(list.top + 1, Math.max(0, list.rows.length - 1)); if (/SUB/.test(t)) list.top = Math.max(0, list.top - 1); if (/OK/.test(t) && list.rows[list.sel ?? list.top]) list.pick(list.rows[list.sel ?? list.top]); });
-  return { kind: 'district', menu, enter() { const i = portIdx(loc); setAnim([`${type}${i}`, `${type}1`].find(k => m2.animations[k]) || loc); say(title); },
+  return { kind: 'district', menu, enter() { const i = portIdx(loc); setAnim([fileOverride, `${type}${i}`, `${type}1`].find(k => k && m2.animations[k]) || loc); say(title); },
     draw(dt) { frame(); drawAnim(dt);
       if (list) { g.fillStyle = '#000'; g.fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h); const rows = list.rows.slice(list.top, list.top + 14);
         rows.forEach((r, k) => { const sel = (list.sel ?? list.top) === list.top + k; font.draw(g, r.label.slice(0, 26), VIEW.x + 2, VIEW.y + 2 + k * 8, sel ? HOT : '#f0d070'); font.draw(g, r.right, VIEW.x + VIEW.w - 2 - font.width(r.right), VIEW.y + 2 + k * 8, sel ? HOT : '#f0d070'); });
