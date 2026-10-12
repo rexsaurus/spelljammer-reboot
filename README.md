@@ -52,7 +52,7 @@ See `docs/file-formats.md` for format notes.
 
 ## Playing the Three.js port (work in progress)
 After running the three decoders above: `cd web && npm install && npm run dev`, then open **http://localhost:5173/game.html**.
-- Star map: click a port to sail there (sailing between spheres takes longer; pirates may intercept you). Click your current port to go ashore.
+- Original 320x200 screens: title, port (BTN menus + MDA town), districts, first-person space flight, orbit/dock, spelljam-to-destination, space combat, disk menu. Mouse or the highlighted hotkey letter.
 - Port: dock (save/new game), store and warehouse (buy/sell), drydock (repair, mount ship weapons), tavern (rumors).
 - Space combat: W/S thrust, A/D turn, Space fire, T to switch between targeting hull and weapons. Get more than 400 away to escape.
 - Deep links: `game.html?combat=1`, `game.html?map=1`. Autosaves to localStorage.
