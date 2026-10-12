@@ -37,3 +37,11 @@ Thirty-some years later, AI agents make it realistic for one person to take apar
 ## Legal
 
 This repo contains only original tools and documentation. Game data is not included; you need your own legal copy (available on [GOG](https://www.gog.com/en/game/spelljammer_pirates_of_realmspace)).
+
+## Running the web prototype (local only)
+```bash
+python3 tools/sj_decode.py        # reads game/ (your GOG install) -> extracted/ (git-ignored)
+cd web && npm install && npm run dev
+```
+Controls: W/S pitch, A/D yaw, Q/E roll, Shift thrust, X brake, C cycle hull.
+See `docs/file-formats.md` for format notes.
