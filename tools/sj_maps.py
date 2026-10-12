@@ -65,6 +65,17 @@ def dmp(path):
 def oml(path):
     d = open(path, 'rb').read(); return {'w': 32, 'h': 32, 'header': struct.unpack_from('<H', d, 0)[0], 'grid': list(d[4:4 + 1024]), 'tail_bytes': len(d) - 1028}
 
+def monsters(path):
+    """ART/MONSTERS.CHR: 524-byte records, name at +300. Fields matched against AD&D 2e stat blocks:
+    +369 u8 natural ac_bonus (10 - AC: skeleton 3, neogi 7, lich 10)   Medium
+    +364 u8 movement (skeleton/human 12, lich/neogi 6)                  Medium
+    +384 u8 hit dice / level (skeleton 1, neogi 5, lich 11)             Medium"""
+    d = open(path, 'rb').read(); R = 524; out = []
+    for i in range(len(d) // R):
+        r = d[i * R:(i + 1) * R]; name = r[300:330].split(b'\0')[0].decode('latin1').strip()
+        out.append({'id': i, 'name': name, 'ac_bonus': r[369], 'move': r[364], 'hd': r[384]})
+    return out
+
 if __name__ == '__main__':
     if not os.path.isdir(GAME): sys.exit('game/ not found: bring your own GOG copy')
     os.makedirs(OUT, exist_ok=True); art = os.path.join(GAME, 'ART')
@@ -74,4 +85,5 @@ if __name__ == '__main__':
     dng = {f[:-4]: oml(os.path.join(art, f)) for f in sorted(os.listdir(art)) if f.endswith('.OML')}
     json.dump(dng, open(os.path.join(OUT, 'dungeons.json'), 'w'))
     print(f"bodies: {[(x['name'], x['orbit_radius']) for x in b['bodies']]}  start {b['start_pos']}")
+    json.dump(monsters(os.path.join(art, 'MONSTERS.CHR')), open(os.path.join(OUT, 'monsters.json'), 'w'), indent=1)
     print(f"decks: {len(decks)}  dungeons: {len(dng)}")
