@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { parseMidi, MidiPlayer } from './midi.js';
+import { initPort } from './port.js';
 
 // ---- Asset loading (runtime, from the user's own decoded game data) ----
 const manifest = await fetch('/manifest.json').then(r => r.ok ? r.json() : null).catch(() => null);
@@ -71,6 +73,24 @@ const ships = [player, ...npcs];
 
 // ---- Flight controls ----
 const keys = {};
+// ---- Audio: decoded VOC sound effects + XMI->MIDI music through a small synth ----
+let actx, music, tracks = [], trackIdx = 0;
+const sfxCache = {};
+async function sfx(name) {
+  if (!actx) return; if (!sfxCache[name]) sfxCache[name] = fetch(`/wav/${name}.wav`).then(r => r.arrayBuffer()).then(b => actx.decodeAudioData(b)).catch(() => null);
+  const buf = await sfxCache[name]; if (!buf) return; const s = actx.createBufferSource(); s.buffer = buf; s.connect(actx.destination); s.start();
+}
+async function playTrack(i) {
+  const m2 = await fetch('/manifest2.json').then(r => r.json()).catch(() => null); tracks = (m2?.music || []).filter(n => /_GR0$/.test(n)); if (!tracks.length) return;
+  trackIdx = (i + tracks.length) % tracks.length;
+  const notes = parseMidi(await fetch(`/mid/${tracks[trackIdx]}.mid`).then(r => r.arrayBuffer())); music.play(notes);
+}
+addEventListener('keydown', e => {
+  if (!actx) { actx = new AudioContext(); music = new MidiPlayer(actx); playTrack(0); }
+  if (e.code === 'KeyM') playTrack(trackIdx + 1);
+  if (e.code === 'Space') sfx(manifest.sounds[Math.floor(Math.random() * manifest.sounds.length)]);
+});
+const port = await initPort({ onEnter: () => playTrack(trackIdx + 1) });
 addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyC') cycleHull(); });
 addEventListener('keyup', e => keys[e.code] = false);
 let hullIdx = 0;
@@ -83,6 +103,7 @@ let speed = 0; const clock = new THREE.Clock(); const hud = document.getElementB
 const camOffset = new THREE.Vector3(0, 12, 45);
 
 function tick() {
+  if (port?.isOpen()) { renderer.render(scene, camera); requestAnimationFrame(tick); clock.getDelta(); return; }
   const dt = Math.min(clock.getDelta(), 0.05);
   const o = player.obj;
   const yaw = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0);
@@ -101,7 +122,7 @@ function tick() {
   for (const s of ships) s.updateFrame(camera);
 
   hud.textContent = `SPELLJAMMER 1992 REBOOT — prototype\nhull SHP${player.type}  speed ${speed.toFixed(0)}\n` +
-    `W/S pitch  A/D yaw  Q/E roll  Shift thrust  X brake  C cycle hull`;
+    `W/S pitch  A/D yaw  Q/E roll  Shift thrust  X brake  C cycle hull\nP port/menu scenes  M next music track  Space sound effect  (press any key to enable audio)`;
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }

@@ -40,8 +40,12 @@ This repo contains only original tools and documentation. Game data is not inclu
 
 ## Running the web prototype (local only)
 ```bash
-python3 tools/sj_decode.py        # reads game/ (your GOG install) -> extracted/ (git-ignored)
+python3 tools/sj_decode.py        # sprites, PCX, palettes, VOC -> extracted/ (git-ignored)
+python3 tools/sj_more.py          # MDA scenes, fonts, XMI->MIDI, tiles
+python3 tools/sj_data.py          # ports, items, ships, rumors, inventories, LIBs -> extracted/data/
 cd web && npm install && npm run dev
 ```
-Controls: W/S pitch, A/D yaw, Q/E roll, Shift thrust, X brake, C cycle hull.
+Controls: W/S pitch, A/D yaw, Q/E roll, Shift thrust, X brake, C cycle hull, P port/menu scenes, M next music track, Space sound effect.
+
+Original game: `brew install dosbox-staging && tools/run-original.sh`
 See `docs/file-formats.md` for format notes.

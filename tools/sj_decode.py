@@ -112,7 +112,7 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ap.add_argument('--game', default=os.path.join(root, 'game', 'GAME', 'SPELLJAM'))
     ap.add_argument('--out', default=os.path.join(root, 'extracted'))
-    ap.add_argument('--palette', default='NEBULA1.PCX', help='PCX supplying base palette')
+    ap.add_argument('--palette', default='OH.PCX', help='PCX supplying base palette')
     a = ap.parse_args()
     art = os.path.join(a.game, 'ART')
     for sub in ('png', 'wav', 'pal'): os.makedirs(os.path.join(a.out, sub), exist_ok=True)
