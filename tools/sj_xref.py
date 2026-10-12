@@ -3,11 +3,11 @@
 
 Ghidra's MZ loader (as used by REA) doesn't know DS, so DS-relative string refs come back empty.
 This reads DGROUP from the C0 startup stub (`mov dx, DGROUP` at CS:IP), then finds
-`mov r16, imm16` instructions whose immediate is a string's DS offset, and attributes each
+`push imm16` or `mov r16, imm16` instructions whose immediate is a string's DS offset, and attributes each
 to the nearest preceding `push bp; mov bp,sp` / `enter` prologue.
 
-Limits: only the resident image is scanned. Borland VROOMM overlays (the 'FBOV' tail) are NOT
-loaded, so code that lives in overlays shows no references. Heuristic, so expect false positives.
+Limits: on an original EXE only the resident image is scanned (overlays in the 'FBOV' tail are not
+loaded). Run it on an MZap `-mb` merged EXE (extracted/re/*.merged.exe) to include overlay code. Heuristic, so expect false positives.
 Output goes to extracted/re/ (git-ignored). Prints only addresses and short string labels.
 
   python3 tools/sj_xref.py SJ.EXE [--grep REGEX]
@@ -21,8 +21,11 @@ def analyze(path, grep):
     size = (pages - 1) * 512 + (lastp or 512); H = hdr * 16; img = d[H:size]
     entry = cs * 16 + ip
     assert img[entry] == 0xBA, 'expected Borland C0 stub: mov dx, DGROUP'
+    _ = 0
+    assert True, 'expected Borland C0 stub: mov dx, DGROUP'
     dgroup = struct.unpack_from('<H', img, entry + 1)[0]; base = dgroup * 16
-    code = img[:base]
+    # scan everything except DGROUP itself; MZap-merged overlays are appended after the resident image
+    code = img[:base] + b'\x90' * min(0x10000, len(img) - base) + img[base + 0x10000:]
     prologs = [m.start() for m in re.finditer(rb'\x55\x8b\xec|\xc8..\x00', code)]
     strs = [(m.start(), m.group().decode()) for m in re.finditer(rb'[ -~]{4,}(?=\x00)', img[base:base + 0x10000])]
     rx = re.compile(grep, re.I) if grep else None
@@ -30,7 +33,7 @@ def analyze(path, grep):
     for off, s in strs:
         if rx and not rx.search(s): continue
         imm = struct.pack('<H', off); fns = set()
-        for op in (0xB8, 0xB9, 0xBA, 0xBB, 0xBE, 0xBF):
+        for op in (0x68, 0xB8, 0xB9, 0xBA, 0xBB, 0xBE, 0xBF):  # 0x68 = push imm16 (186+ code)
             for m in re.finditer(re.escape(bytes([op]) + imm), code):
                 i = bisect.bisect_right(prologs, m.start()) - 1
                 if i >= 0: fns.add(prologs[i])

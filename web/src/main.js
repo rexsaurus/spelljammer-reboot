@@ -63,7 +63,7 @@ class Ship {
   }
 }
 
-const player = new Ship(shipTypes[0] ?? 0, new THREE.Vector3());
+const player = new Ship(shipTypes[Math.max(0, shipTypes.indexOf(Number(new URLSearchParams(location.search).get('hull'))))] ?? 0, new THREE.Vector3());
 const npcs = shipTypes.slice(1).map((t, i) => {
   const a = i / Math.max(1, shipTypes.length - 1) * Math.PI * 2;
   const s = new Ship(t, new THREE.Vector3(Math.cos(a) * 150, (Math.random() - .5) * 60, Math.sin(a) * 150));
@@ -93,7 +93,7 @@ addEventListener('keydown', e => {
 const port = await initPort({ onEnter: () => playTrack(trackIdx + 1) });
 addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyC') cycleHull(); });
 addEventListener('keyup', e => keys[e.code] = false);
-let hullIdx = 0;
+let hullIdx = Math.max(0, shipTypes.indexOf(Number(new URLSearchParams(location.search).get('hull'))));
 function cycleHull() {
   hullIdx = (hullIdx + 1) % shipTypes.length;
   const p = player.obj.position.clone(), q = player.obj.quaternion.clone();

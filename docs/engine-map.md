@@ -58,3 +58,54 @@ comparisons (ship screen vs. record values), and neither has been done. We're de
 2. Then map the SF3 loaders for `ships.shi`/`items.itm`/`%s%d.inv`/`.prt` and name the ITM/SHI fields by their uses
    (damage, armor, speed, hull points, etc.).
 3. Find the SF3 save writer (near 0x16ca5/0x1fc69 callers) to learn the save layout, then the quest flags.
+
+---
+## Pass 2: overlays merged (Oct 12, 2026)
+
+**Correction to section 2.** The low hit counts above had two causes, not one: overlays were not loaded, **and**
+`sj_xref.py` missed `push imm16` (opcode 0x68; this is 186+ code that passes strings as `push ds; push offset`).
+Both are fixed now.
+
+**Overlay loader.** We reuse **MZap** by Nancy Sadkov (github.com/NancyAurum/devroomm, CC0), cloned and built into the
+git-ignored `extracted/re/`. `mzap -mb X.orig.exe X.merged.exe` merges the FBOV section into the MZ image, extends the
+relocation table and turns each `INT 3Fh` trampoline into a far JMP. Ghidra and REA then load every overlay segment.
+- FBOV `__SEGTABLE__`: SF3 at 0x314C0 (0x7E segments), SJ at 0x20630, OTC at 0x26310.
+- REA analyze, SF3 original vs. merged: **77 → 153 segments, ~734 → 1,305 procedures, 175 → 402 strings**.
+- String refs found by `sj_xref.py` (original → merged): **SF3 60 → 292 of 335, OTC 21 → 119 of 169, SJ 5 → 13 of 65**.
+- **Not checked against a DOSBox memory snapshot.** DOSBox Staging's release build has no memory-dump debugger.
+  Next step is a debug build (or DOSBox-X `MEMDUMPBIN`), then compare overlay bytes at runtime with the merged image.
+
+Merged-image addresses below are Ghidra linear addresses (image at 0x10000). Above ~0x4D000 in SF3 is overlay code.
+
+### SF3.EXE (flight, combat, ports, saves)
+| System | Functions | Evidence | Confidence |
+|---|---|---|---|
+| **World/data init cluster** | 0x57df0 (rumor text1/text2.rum), 0x57ec6 & 0x57f3f (`temp%d.sf` state files), 0x580a5 (cargo.crg), 0x584ce (ships.shi), 0x5857d (items.itm), 0x58b3c (.prt) | One contiguous run of loaders, each tied to one data file | Medium-high |
+| **Save/load** | 0x1e86b (writes `temp.sfi`, save-disk prompt), 0x16ca5, 0x1fc69 (save-disk prompt), 0x77f13 (blocks save/load while docked), 0x5c013 | Save strings | Medium |
+| **Port / trade** | 0x6b5f9 and 0x6cbd9 (shop inventory `%s%d.inv`), 0x6fd79 (port .prt + cargo), 0x61287, 0x77a25, 0x72b89, 0x7315f, 0x6aeb1, 0x7110b | Buy/sell/price/cargo strings | Medium |
+| **Ship combat** | 0x78290 (7 combat messages), 0x1edd5, 0x6eacd, 0x183f3, 0x2066d, 0x22323, 0x54c3d | Ram/board/fire/bearing messages | Medium |
+| **Crew/boarding handoff** | 0x76f0c (temp.crw + items.itm), 0x773f2 | Writes crew/items for the boarding program | Medium |
+| **Quest/rumor** | 0x57df0, 0x78db0, 0x6a67a, 0x7204b, 0x75f09, 0x76e3e | Rumor/mission strings | Low-medium |
+| **Game loop** | not identified | Needs call-graph analysis (most-called dispatcher) | — |
+
+### OTC.EXE (boarding/dungeon, finale)
+| System | Functions | Confidence |
+|---|---|---|
+| Spell tables | 0x4fce0 (MUSPELL.ITM + CLERICSP.ITM), 0x5ab26 (muspells.dat) | Medium |
+| **Finale** | 0x54130, 0x54489, 0x54702 (final-boss taunt dialogue), 0x5c230 (finale.bda cutscene) | Medium |
+| Rumor text | 0x2fde4 (text2.rum) | Low-medium |
+| Squad combat | 0x295a8, 0x4ce00, 0x501d0 | Low-medium |
+
+### SJ.EXE
+SJ's data strings are mostly not referenced, even after the merge (13/65). Its file names may be built at runtime or
+passed through tables. Mapped so far: sound/intro loaders from section 3, and rumor-related refs at 0x1572b/0x15774/0x157eb.
+
+### Quest bug
+**Not located.** The best candidates are the SF3 quest/rumor functions listed above, the `temp%d.sf` state files
+(0x57ec6/0x57f3f), and the SF3→OTC finale handoff (0x76f0c writes temp.crw; OTC 0x54130–0x54702 / 0x5c230 run the
+finale). Next: decompile those (keeping output in extracted/re/) and diff the `temp*.sf*` files saved before and after the
+step where the game gets stuck.
+
+### Stat fields
+Still not named. The loaders are known now (ships 0x584ce, items 0x5857d), but their field uses haven't been decompiled
+yet. A REA `function` call on 0x584ce was stopped before it finished.

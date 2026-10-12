@@ -28,5 +28,7 @@ export async function initPort({ onEnter, onLeave }) {
     if (!open) return;
     if (e.code === 'ArrowRight') load(cur + 1); if (e.code === 'ArrowLeft') load(cur - 1); if (e.code === 'KeyR') load(cur);
   }, true);
+  const q = new URLSearchParams(location.search);   // deep links, e.g. ?port=TAV1
+  if (q.has('port')) { const i = scenes.indexOf(q.get('port')); open = true; el.style.display = 'flex'; load(i >= 0 ? i : 0); timer = setInterval(draw, 100); }
   return { isOpen: () => open };
 }
