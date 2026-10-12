@@ -6,6 +6,8 @@ import { layout, travel, bodyPositions, displayRadius } from '../game/starmap.js
 import { buy, sell, buyPrice, sellPrice, cargoUsed, maxWeapons, repair, repairCost } from '../game/economy.js';
 import { startBattle, stepCombat, resolveBattle, rangeOf } from '../game/combat.js';
 import { makeRng } from '../game/rng.js';
+import { makeCharacter, equip, unequip, armorClass, thac0, weaponOf, hire, hireCost, dismiss, slotOf, MAX_CREW } from '../game/crew.js';
+import { buyHull, hullPrice, tradeInValue } from '../game/shipyard.js';
 
 const j = u => fetch(u).then(r => r.ok ? r.json() : null).catch(() => null);
 const [manifest, m2, items, ships, ports, inventories, rumors, bodiesJson] = await Promise.all(['/manifest.json', '/manifest2.json', '/data/items.json', '/data/ships.json', '/data/ports.json', '/data/inventories.json', '/data/rumors.json', '/data/bodies.json'].map(j));
@@ -87,10 +89,12 @@ function backdrop(name) {
     animTimer = setInterval(() => { if (img.complete) { g.drawImage(img, f * a.w, 0, a.w, a.h, 0, 0, a.w, a.h); f = (f + 1) % a.frames; } }, 110); });
   return '<canvas></canvas>';
 }
+let recruitPool = [], recruitKey = '';
+function recruits() { const k = state.location + state.day; if (k !== recruitKey) { recruitKey = k; recruitPool = [0, 1, 2].map(() => makeCharacter(rng, undefined, rng.int(1, 3))); } return recruitPool; }
 function openPort(tab = 'dock') {
   mode = 'port'; panel.style.display = 'flex'; const loc = state.location;
-  const tabs = ['dock', 'store', 'warehouse', 'drydock', 'tavern'].map(t => `<button data-tab="${t}">${t}</button>`).join('');
-  const type = { dock: null, store: 'STR', warehouse: 'WRH', drydock: 'DRY', tavern: 'TAV' }[tab];
+  const tabs = ['dock', 'store', 'warehouse', 'drydock', 'tavern', 'crew'].map(t => `<button data-tab="${t}">${t}</button>`).join('');
+  const type = { dock: null, store: 'STR', warehouse: 'WRH', drydock: 'DRY', tavern: 'TAV', crew: null }[tab];
   const scene = type ? district(type, loc) : (m2?.animations?.[loc] ? loc : null);
   let body = '';
   const row = (it, have) => `<tr><td>${it.name}</td><td>${buyPrice(it, loc)} gp</td><td>${sellPrice(it, loc)} gp</td><td>${have || 0}</td><td><button data-buy="${it.id}">buy</button>${have ? `<button data-sell="${it.id}">sell</button>` : ''}</td></tr>`;
@@ -98,13 +102,25 @@ function openPort(tab = 'dock') {
   if (type === 'STR' || type === 'WRH') { const shop = db.shops[scene] || []; body = `<table><tr><td>item</td><td>buy</td><td>sell</td><td>held</td></tr>${shop.map(r => row(db.itemsById[r.itemId], state.cargo[r.itemId])).join('')}</table>`; }
   if (type === 'DRY') { const shop = (db.shops[scene] || []).map(r => db.itemsById[r.itemId]).filter(i => i.shipWeapon);
     body = `<p>Hull ${state.ship.hull}/${state.ship.tonnage}. Repair: ${repairCost(state.ship)} gp <button data-act="repair">repair</button></p><p>Mounts ${state.ship.weapons.length}/${maxWeapons(state.ship)}: ${state.ship.weapons.map(id => db.itemsById[id]?.name).join(', ')}</p>
-    <table>${shop.map(i => `<tr><td>${i.name}</td><td>${buyPrice(i, loc)} gp</td><td>${i.dmgLarge.n}d${i.dmgLarge.sides}</td><td>range ${i.range[2]}</td><td><button data-buy="${i.id}">mount</button></td></tr>`).join('')}</table>`; }
-  if (tab === 'tavern') body = `<p>Overheard:</p><p><i>${db.rumors.length ? db.rumors[rng.int(0, db.rumors.length - 1)] : '(no rumors decoded)'}</i></p><button data-tab="tavern">listen again</button>`;
+    <table>${shop.map(i => `<tr><td>${i.name}</td><td>${buyPrice(i, loc)} gp</td><td>${i.dmgLarge.n}d${i.dmgLarge.sides}</td><td>range ${i.range[2]}</td><td><button data-buy="${i.id}">mount</button></td></tr>`).join('')}</table>
+    <h4>Ships for sale (trade-in ${tradeInValue(state.ship)} gp)</h4><table><tr><td>ship</td><td>tons/hull</td><td>cargo</td><td>price</td></tr>${db.ships.filter(x => x.id !== state.ship.shipId).map(x => `<tr><td>${x.name}</td><td>${x.tonnage}</td><td>${x.cargo}</td><td>${hullPrice(x)} gp</td><td><button data-hull="${x.id}">buy</button></td></tr>`).join('')}</table>`; }
+  if (tab === 'tavern') body = `<p>Overheard:</p><p><i>${db.rumors.length ? db.rumors[rng.int(0, db.rumors.length - 1)] : '(no rumors decoded)'}</i></p><button data-tab="tavern">listen again</button>
+    <h4>Adventurers looking for a berth (${state.crew.length}/${MAX_CREW} crew)</h4><table>${recruits().map((c, i) => `<tr><td>${c.name}</td><td>${c.cls} L${c.level}</td><td>HP ${c.hpMax}</td><td>S${c.str} D${c.dex} C${c.con} I${c.int} W${c.wis}</td><td>${hireCost(c)} gp</td><td><button data-hire="${i}">hire</button></td></tr>`).join('')}</table>`;
+  if (tab === 'crew') body = state.crew.map((c, ci) => { const held = Object.keys(state.cargo).map(Number).filter(id => slotOf(db.itemsById[id]));
+    return `<div style="border-top:1px solid #a73;margin-top:6px"><b>${c.name}</b> ${c.cls} L${c.level} · XP ${c.xp} · HP ${c.hp}/${c.hpMax} · AC ${armorClass(c, db)} · THAC0 ${thac0(c)}<br>
+    STR ${c.str} DEX ${c.dex} CON ${c.con} INT ${c.int} WIS ${c.wis} CHA ${c.cha}<br>
+    ${['weapon', 'armor', 'shield'].map(sl => `${sl}: ${sl === 'weapon' ? weaponOf(c, db).name : db.itemsById[c.equip[sl]]?.name ?? '—'} ${c.equip[sl] != null ? `<button data-uneq="${ci}:${sl}">remove</button>` : ''}`).join(' · ')}<br>
+    ${held.map(id => `<button data-eq="${ci}:${id}">equip ${db.itemsById[id].name}</button>`).join('')} <button data-dismiss="${ci}">dismiss</button></div>`; }).join('') || '<p>No crew. Hire some at the tavern.</p>';
   panel.innerHTML = `<div>${scene ? backdrop(scene) : ''}</div><div style="flex:1"><h3>${portName(loc).toUpperCase()} — ${tab}</h3><div>${tabs}</div><p>Gold ${state.gold} · Hold ${cargoUsed(state, db).toFixed(1)}/${state.ship.cargoCap}</p><div id="msg"></div>${body}</div>`;
   panel.onclick = e => { const d = e.target.dataset; let r;
     if (d.tab) return openPort(d.tab);
     if (d.buy) r = buy(state, db, +d.buy); if (d.sell) r = sell(state, db, +d.sell);
-    if (d.act === 'repair') r = repair(state); if (d.act === 'leave') return closePanel();
+    if (d.act === 'repair') r = repair(state);
+    if (d.hull) r = buyHull(state, db, +d.hull);
+    if (d.hire) { const c = recruits()[+d.hire]; r = hire(state, c); if (r.ok) recruitPool.splice(+d.hire, 1); }
+    if (d.eq) { const [ci, id] = d.eq.split(':').map(Number); r = equip(state, db, ci, id); }
+    if (d.uneq) { const [ci, sl] = d.uneq.split(':'); r = unequip(state, +ci, sl); }
+    if (d.dismiss) r = dismiss(state, +d.dismiss); if (d.act === 'leave') return closePanel();
     if (d.act === 'save') { saveTo(localStorage, 'slot1', state); r = { ok: true }; }
     if (d.act === 'new') { state = newGame(db); autosave(); return openPort(); }
     if (r) { autosave(); openPort(tab); if (!r.ok) panel.querySelector('#msg').textContent = r.why; } };
@@ -144,5 +160,5 @@ function tick() {
   renderer.render(scene, camera); requestAnimationFrame(tick);
 }
 const q = new URLSearchParams(location.search); // deep links: ?combat=1, ?map=1
-if (q.has('combat')) beginCombat(); else if (!q.has('map')) openPort();
+if (q.has('combat')) beginCombat(); else if (!q.has('map')) openPort(q.get('tab') || 'dock');
 tick();
